@@ -1,0 +1,116 @@
+// Steel Tide: First Device — Voxels / GPU Raymarching
+// VoxelRaymarch.compute
+//
+// Skeleton compute shader that renders a 3D voxel volume via GPU raymarching.
+// Each voxel is a PACKED 16-bit word (R16_UInt: 2 bytes per voxel), matching the
+// authoring tool / VoxelBits.cs layout:
+//
+//   Bit 15..12 (4)  SHAPE      Bit 11..9 (3)  ROTATION      Bit 8..0 (9)  MATERIAL
+//
+// Material (low 9 bits) selects color; shape/rotation bits will later select a
+// per-voxel SDF/mesh + orientation. Individual blocks have NO triangles.
+//
+// See: docs/core/TECH_STACK.md (§2), design/MATERIAL_MATRIX.md
+
+#pragma kernel CSRaymarch
+
+// ---- Packed-voxel bit layout (mirror of VoxelBits.cs) -----------------------
+#define VX_SHAPE_SHIFT     12
+#define VX_ROTATION_SHIFT  9
+#define VX_MATERIAL_MASK   0x1FFu   // low 9 bits
+#define VX_SHAPE_MASK      0xFu     // 4 bits
+#define VX_ROTATION_MASK   0x7u     // 3 bits
+
+uint VxMaterial(uint v)  { return v & VX_MATERIAL_MASK; }
+uint VxShape(uint v)     { return (v >> VX_SHAPE_SHIFT) & VX_SHAPE_MASK; }
+uint VxRotation(uint v)  { return (v >> VX_ROTATION_SHIFT) & VX_ROTATION_MASK; }
+
+// ---- Bindings ---------------------------------------------------------------
+// Packed voxel words in a 3D texture (R16_UInt: 2 bytes per voxel).
+Texture3D<uint>      _VoxelVolume;
+RWTexture2D<float4>  _Output;           // screen-space color target
+
+// Per-material color lookup (index by 9-bit material ID). Up to 512 entries.
+StructuredBuffer<float4> _MaterialColors;
+
+float3 _VolumeDims;        // voxel counts (x,y,z)
+float  _VoxelSize;         // world units per voxel
+float3 _CameraOrigin;      // world space
+float4x4 _InvViewProj;     // for reconstructing ray dirs from screen uv
+float2 _ScreenSize;        // pixels
+int    _MaxSteps;          // safety cap on DDA iterations
+
+// ---- Helpers ----------------------------------------------------------------
+bool InBounds(int3 v)
+{
+    return all(v >= int3(0,0,0)) && all(v < (int3)_VolumeDims);
+}
+
+float3 RayDirFromUV(float2 uv)
+{
+    // uv in [0,1]; reconstruct a world-space direction through the pixel.
+    float4 clip = float4(uv * 2.0 - 1.0, 1.0, 1.0);
+    float4 world = mul(_InvViewProj, clip);
+    world /= world.w;
+    return normalize(world.xyz - _CameraOrigin);
+}
+
+// ---- Kernel -----------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void CSRaymarch(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_ScreenSize.x || id.y >= (uint)_ScreenSize.y)
+        return;
+
+    float2 uv = (float2(id.xy) + 0.5) / _ScreenSize;
+    float3 ro = _CameraOrigin;
+    float3 rd = RayDirFromUV(uv);
+
+    // Amanatides-Woo DDA setup in voxel space.
+    float3 p = ro / _VoxelSize;
+    int3 voxel = (int3)floor(p);
+    int3 step = (int3)sign(rd);
+
+    float3 invDir = 1.0 / max(abs(rd), 1e-6);
+    float3 tDelta = invDir;
+    float3 nextB  = floor(p) + max(step, 0);
+    float3 tMax   = (nextB - p) * invDir;
+
+    float4 color = float4(0, 0, 0, 0); // background = transparent/clear
+
+    [loop]
+    for (int i = 0; i < _MaxSteps; ++i)
+    {
+        if (!InBounds(voxel))
+            break;
+
+        uint packed = _VoxelVolume.Load(int4(voxel, 0));
+        uint mat = VxMaterial(packed); // mask low 9 bits; ignore shape/rotation here
+        if (mat != 0u) // 0 = Air
+        {
+            color = _MaterialColors[mat];
+            break; // first solid hit (extend with shading / shape SDF later)
+        }
+
+        // advance along smallest tMax axis
+        if (tMax.x < tMax.y)
+        {
+            if (tMax.x < tMax.z) { voxel.x += step.x; tMax.x += tDelta.x; }
+            else                 { voxel.z += step.z; tMax.z += tDelta.z; }
+        }
+        else
+        {
+            if (tMax.y < tMax.z) { voxel.y += step.y; tMax.y += tDelta.y; }
+            else                 { voxel.z += step.z; tMax.z += tDelta.z; }
+        }
+    }
+
+    _Output[id.xy] = color;
+}
+
+// TODO:
+//  - Use VxShape()/VxRotation() to ray-test a per-voxel SDF (wedge/cylinder/ball)
+//    instead of treating every solid voxel as a full cube.
+//  - Surface normal estimation from voxel face crossed -> directional lighting.
+//  - Depth output for compositing with rasterized ECS entities.
+//  - Chunked volume binding for large maps (avoid one giant 3D texture).

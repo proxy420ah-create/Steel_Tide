@@ -1,0 +1,62 @@
+# ───────────────────────────────────────────────────────────────
+# Steel Tide: First Device — .gitignore
+# ───────────────────────────────────────────────────────────────
+
+# ── Unity (generated; never commit) ────────────────────────────
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Unity-generated solution / project files
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Asset meta junk that shouldn't be tracked yet (pre-project)
+*.apk
+*.aab
+*.unitypackage
+*.app
+crashlytics-build.properties
+
+# ── Python (asset generator tool) ──────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ── Generated voxel assets / tool output ───────────────────────
+out/
+*.stasset
+*.bin
+
+# ── OS / editor cruft ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vs/
+*.swp
+*~

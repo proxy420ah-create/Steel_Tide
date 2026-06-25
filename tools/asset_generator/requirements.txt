@@ -1,0 +1,7 @@
+# Steel Tide — Asset Generator (Phase 1 core)
+numpy>=1.24
+
+# Phase 2 (PyQt voxel preview tool) will additionally require:
+# PyQt5>=5.15
+# pyqtgraph>=0.13
+# PyOpenGL>=3.1

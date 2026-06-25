@@ -1,0 +1,43 @@
+{
+  "asset_name": "Vekari_Walker_Gun_Barrel",
+  "grid_size": [16, 16, 32],
+  "primitives": [
+    {
+      "shape": "Cylinder",
+      "material": "Steel",
+      "rotation": "North",
+      "start_coord": [8, 8, 2],
+      "end_coord": [8, 8, 30],
+      "radius": 3
+    },
+    {
+      "shape": "Cylinder",
+      "material": "Air",
+      "rotation": "North",
+      "start_coord": [8, 8, 6],
+      "end_coord": [8, 8, 31],
+      "radius": 1
+    },
+    {
+      "shape": "Cube",
+      "material": "Chobham_Armor",
+      "rotation": "North",
+      "start_coord": [4, 4, 0],
+      "end_coord": [12, 12, 5]
+    },
+    {
+      "shape": "Wedge",
+      "material": "Chobham_Armor",
+      "rotation": "Up",
+      "start_coord": [4, 4, 5],
+      "end_coord": [12, 10, 12]
+    },
+    {
+      "shape": "Sphere",
+      "material": "Energy_Shield",
+      "rotation": "North",
+      "start_coord": [8, 8, 30],
+      "radius": 4
+    }
+  ]
+}

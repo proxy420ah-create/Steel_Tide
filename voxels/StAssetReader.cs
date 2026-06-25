@@ -1,0 +1,110 @@
+// Steel Tide: First Device — Voxels / .stasset Reader
+// StAssetReader.cs
+//
+// Parses the binary ".stasset" container produced by the Python authoring tool
+// (tools/asset_generator/voxel_format.py) and loads the packed 16-bit voxel
+// payload into a NativeArray<ushort> ready for the penetration job / GPU upload.
+//
+// File format (little-endian):
+//   Offset  Size  Field
+//   0       4     magic   = "STAS"
+//   4       1     version = 1
+//   5       1     flags   = 0 (reserved)
+//   6       2     dim_x   (ushort)
+//   8       2     dim_y   (ushort)
+//   10      2     dim_z   (ushort)
+//   12      4     reserved (zero)
+//   16      ..    payload = dim_x*dim_y*dim_z ushort voxels, X fastest
+//                 index = x + y*dim_x + z*dim_x*dim_y
+//
+// Decoupled from GameObjects. Returns plain data the rest of the pipeline owns.
+//
+// See: tools/asset_generator/voxel_format.py, design/MATERIAL_MATRIX.md
+
+using System;
+using System.IO;
+using Unity.Collections;
+using Unity.Mathematics;
+
+namespace SteelTide.Voxels
+{
+    /// <summary>A loaded voxel asset: dimensions + the packed 16-bit volume.</summary>
+    public struct StAsset : IDisposable
+    {
+        public int3 dims;                  // (x, y, z) voxel counts
+        public NativeArray<ushort> volume;  // packed voxels, x + y*dimX + z*dimX*dimY
+
+        public int VoxelCount => dims.x * dims.y * dims.z;
+
+        public int Index(int x, int y, int z) => x + y * dims.x + z * dims.x * dims.y;
+
+        public ushort Get(int x, int y, int z) => volume[Index(x, y, z)];
+
+        public void Dispose()
+        {
+            if (volume.IsCreated)
+                volume.Dispose();
+        }
+    }
+
+    public static class StAssetReader
+    {
+        public const int HeaderSize = 16;
+        public const byte ExpectedVersion = 1;
+        // "STAS" as little-endian bytes: 'S','T','A','S'.
+        private static readonly byte[] Magic = { 0x53, 0x54, 0x41, 0x53 };
+
+        /// <summary>Load a .stasset file from disk into a NativeArray-backed StAsset.</summary>
+        public static StAsset Load(string path, Allocator allocator = Allocator.Persistent)
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+            return Parse(bytes, allocator);
+        }
+
+        /// <summary>Parse a .stasset byte buffer (e.g. from a TextAsset.bytes).</summary>
+        public static StAsset Parse(byte[] bytes, Allocator allocator = Allocator.Persistent)
+        {
+            if (bytes == null || bytes.Length < HeaderSize)
+                throw new InvalidDataException("stasset: buffer smaller than 16-byte header");
+
+            // --- Magic ---
+            for (int i = 0; i < 4; i++)
+            {
+                if (bytes[i] != Magic[i])
+                    throw new InvalidDataException("stasset: bad magic (not a SteelTide asset)");
+            }
+
+            byte version = bytes[4];
+            if (version != ExpectedVersion)
+                throw new InvalidDataException($"stasset: unsupported version {version}");
+            // bytes[5] = flags (reserved), bytes[12..15] = reserved.
+
+            int dimX = ReadU16(bytes, 6);
+            int dimY = ReadU16(bytes, 8);
+            int dimZ = ReadU16(bytes, 10);
+            int count = dimX * dimY * dimZ;
+
+            long expected = (long)HeaderSize + (long)count * 2L;
+            if (bytes.Length < expected)
+                throw new InvalidDataException(
+                    $"stasset: payload truncated (need {expected} bytes, have {bytes.Length})");
+
+            var volume = new NativeArray<ushort>(count, allocator, NativeArrayOptions.UninitializedMemory);
+            int offset = HeaderSize;
+            for (int i = 0; i < count; i++)
+            {
+                // Little-endian ushort: low byte first.
+                volume[i] = (ushort)(bytes[offset] | (bytes[offset + 1] << 8));
+                offset += 2;
+            }
+
+            return new StAsset
+            {
+                dims = new int3(dimX, dimY, dimZ),
+                volume = volume,
+            };
+        }
+
+        private static int ReadU16(byte[] b, int offset) => b[offset] | (b[offset + 1] << 8);
+    }
+}
