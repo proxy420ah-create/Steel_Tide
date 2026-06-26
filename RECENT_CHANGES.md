@@ -7,6 +7,30 @@
 
 ## Current Session Changes
 
+### Session: Unity Project Reconciliation (scripts → /Assets, DOTS manifest)
+
+**Goal**: Fold the existing C# scaffolding into the newly created Unity 6 project
+(`My project/`) and pin the DOTS/ECS dependencies.
+
+**Changes Made**:
+1. Created `My project/Assets/{Voxels,Combat,Geoscape,Prototype}/`.
+2. Moved scripts into Assets:
+   - `Voxels/` ← `VoxelBits.cs`, `VoxelPenetration.cs`, `StAssetReader.cs`,
+     **`VoxelRaymarch.compute`** (moved too — Unity needs the shader compiled).
+   - `Combat/` ← `CommandHierarchy.cs`
+   - `Geoscape/` ← `SectorState.cs`
+   - `Prototype/` ← `PrototypeBootstrap.cs`
+3. Injected pinned DOTS deps into `Packages/manifest.json`:
+   `com.unity.entities 1.3.14`, `com.unity.physics 1.3.14`,
+   `com.unity.burst 1.8.18`, `com.unity.mathematics 1.3.2`.
+
+**Notes**: Repo-root `README.md` docs remain in `voxels/ combat/ geoscape/` as
+documentation. Source root `prototype/` is now empty. `entities` pulls
+`collections`/`serialization` transitively. No `.asmdef` added — these packages
+auto-reference into `Assembly-CSharp`, so the scripts compile as-is.
+
+---
+
 ### Session: Phase 3 — Unity-Side Reconciliation (16-bit ushort)
 
 **Goal**: Make the Unity runtime speak the exact same binary language as the
