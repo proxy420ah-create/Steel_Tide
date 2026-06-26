@@ -206,13 +206,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.16773126, y: -0.25488698, z: 0.044943444, w: 0.95125127}
-  m_LocalPosition: {x: 4, y: 4, z: 6}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -40}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 20, y: -30, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &330585547
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -270,10 +270,18 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Voxels.VoxelRenderer
   raymarchShader: {fileID: 7200000, guid: 79d839410aed93046b69478581914c6b, type: 3}
-  voxelVolume: {fileID: 0}
+  volumeDims:
+    x: 0
+    y: 0
+    z: 0
   maxSteps: 256
   voxelSize: 0.5
   volumeOffset: {x: 0, y: 0, z: 0}
+  showVolumeGizmo: 1
+  editorVolumeDims:
+    x: 8
+    y: 8
+    z: 8
   materialColors:
   - {r: 0.02, g: 0.03, b: 0.08, a: 0}
   - {r: 0, g: 1, b: 0.97, a: 1}

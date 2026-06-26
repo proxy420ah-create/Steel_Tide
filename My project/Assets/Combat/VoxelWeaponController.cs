@@ -223,5 +223,32 @@ namespace SteelTide.Combat
             v.x < volumeDims.x && v.y < volumeDims.y && v.z < volumeDims.z;
 
         private int Index(int3 v) => v.x + v.y * volumeDims.x + v.z * volumeDims.x * volumeDims.y;
+        
+        /// <summary>
+        /// Destroy a single voxel at the given 1D index (called by FPS shooter)
+        /// </summary>
+        public void DestroyVoxelAt(int index)
+        {
+            if (!_volumeReady)
+            {
+                Debug.LogWarning("[VoxelWeaponController] Volume not ready for destruction!");
+                return;
+            }
+            
+            int totalVoxels = volumeDims.x * volumeDims.y * volumeDims.z;
+            if (index < 0 || index >= totalVoxels)
+            {
+                Debug.LogWarning($"[VoxelWeaponController] Index {index} out of bounds!");
+                return;
+            }
+            
+            // Set voxel to air (material ID 0)
+            voxelData[index] = 0;
+            
+            // Upload modified data to GPU
+            UpdateGPUTexture();
+            
+            Debug.Log($"[VoxelWeaponController] Destroyed voxel at index {index}");
+        }
     }
 }

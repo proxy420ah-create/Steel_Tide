@@ -179,6 +179,22 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
             // Get base material color
             float4 baseColor = _MaterialColors[mat];
             
+            // GRADIENT: Gray shell → Orange core (for concrete blocks)
+            if (mat == 3u) // Concrete material
+            {
+                // Calculate distance from center of volume
+                float3 volumeCenter = float3(_VolumeDims) * 0.5;
+                float3 voxelCenter = float3(voxel) + 0.5;
+                float distFromCenter = length(voxelCenter - volumeCenter);
+                float maxDist = length(float3(_VolumeDims) * 0.5);
+                float normalizedDist = distFromCenter / maxDist; // 0 = center, 1 = edge
+                
+                // Gradient: Orange core (1.0, 0.5, 0.0) → Gray shell (0.6, 0.6, 0.55)
+                float3 coreColor = float3(1.0, 0.5, 0.0);  // Orange
+                float3 shellColor = float3(0.6, 0.6, 0.55); // Gray
+                baseColor.rgb = lerp(coreColor, shellColor, normalizedDist);
+            }
+            
             // FLAT-COLOR SHADING: Use the face normal that was just crossed
             // Light direction: slightly above and to the right for clear 3D definition
             float3 lightDir = normalize(float3(0.5, 0.8, -0.3));

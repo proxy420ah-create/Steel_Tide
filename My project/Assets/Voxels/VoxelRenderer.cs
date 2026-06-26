@@ -27,6 +27,10 @@ namespace SteelTide.Voxels
         public int maxSteps = 256;
         public float voxelSize = 0.5f;
         public Vector3 volumeOffset = Vector3.zero;  // world-space origin of the voxel grid
+        
+        [Header("Editor Gizmo (for Scene view preview)")]
+        public bool showVolumeGizmo = true;
+        public Unity.Mathematics.int3 editorVolumeDims = new Unity.Mathematics.int3(8, 8, 8);  // Preview size in editor
 
         [Header("Material Colors (index by material ID)")]
         public Color[] materialColors = new Color[]
@@ -198,6 +202,31 @@ namespace SteelTide.Voxels
             int threadGroupsX = Mathf.CeilToInt(_output.width / 8f);
             int threadGroupsY = Mathf.CeilToInt(_output.height / 8f);
             raymarchShader.Dispatch(_kernelIndex, threadGroupsX, threadGroupsY, 1);
+        }
+
+        // Draw volume bounds in Scene view for easier editing
+        void OnDrawGizmos()
+        {
+            if (!showVolumeGizmo) return;
+            
+            // Use runtime dims if available, otherwise use editor preview dims
+            Unity.Mathematics.int3 dims = (volumeDims.x > 0) ? volumeDims : editorVolumeDims;
+            
+            if (dims.x > 0 && dims.y > 0 && dims.z > 0)
+            {
+                Vector3 size = new Vector3(dims.x, dims.y, dims.z) * voxelSize;
+                Vector3 center = volumeOffset + size / 2;
+                
+                // Draw wireframe cube showing voxel volume bounds
+                Gizmos.color = new Color(0, 1, 1, 0.5f); // Cyan
+                Gizmos.DrawWireCube(center, size);
+                
+                // Draw corner markers
+                Gizmos.color = Color.cyan;
+                float markerSize = voxelSize * 0.5f;
+                Gizmos.DrawWireSphere(volumeOffset, markerSize);
+                Gizmos.DrawWireSphere(volumeOffset + size, markerSize);
+            }
         }
     }
 }
