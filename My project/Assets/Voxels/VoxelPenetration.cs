@@ -60,9 +60,18 @@ namespace SteelTide.Voxels
             tMax = math.select(tMax, float.PositiveInfinity, math.abs(rayDir) < 1e-6f);
 
             float power = basePower;
+            int loopGuard = 0;  // Safety counter to prevent infinite loops
 
             while (power > 0f && InBounds(voxel))
             {
+                // CRITICAL: Prevent infinite loop if DDA math encounters edge case
+                if (++loopGuard > 1000)
+                {
+                    UnityEngine.Debug.LogWarning($"[VoxelPenetration] Loop guard triggered at voxel {voxel}. " +
+                                                 $"RayDir={rayDir}, Power={power:F2}");
+                    break;
+                }
+
                 int idx = Index(voxel);
                 // Mask out shape/rotation — physics only reads the low 9 material bits.
                 int mat = volume[idx] & VoxelBits.MaterialMask;

@@ -1,0 +1,13 @@
+{
+  "asset_name": "test_cube",
+  "grid_size": [8, 8, 8],
+  "primitives": [
+    {
+      "shape": "Cube",
+      "material": "Concrete",
+      "rotation": "North",
+      "start_coord": [0, 0, 0],
+      "end_coord": [7, 7, 7]
+    }
+  ]
+}

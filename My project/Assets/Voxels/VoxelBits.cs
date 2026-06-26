@@ -39,7 +39,7 @@ namespace SteelTide.Voxels
             (ushort)((shape << ShapeShift) | (rotation << RotationShift) | (material & MaterialMask));
     }
 
-    /// <summary>Material IDs — canonical order from design/MATERIAL_MATRIX.md (+ Steel).</summary>
+    /// <summary>Material IDs — canonical order from design/MATERIAL_MATRIX.md (+ Steel + Damaged states).</summary>
     public static class MaterialId
     {
         public const ushort Air          = 0;
@@ -48,8 +48,13 @@ namespace SteelTide.Voxels
         public const ushort Concrete      = 3;
         public const ushort Flesh         = 4;
         public const ushort Steel         = 5;
+        
+        // Damaged states (visual feedback for partial penetration)
+        public const ushort DamagedConcrete = 13;
+        public const ushort DamagedSteel    = 14;
+        public const ushort DamagedArmor    = 15;
 
-        public const int Count = 6;
+        public const int Count = 16;  // Updated to accommodate damaged states
     }
 
     /// <summary>Shape IDs (upper 4 bits).</summary>

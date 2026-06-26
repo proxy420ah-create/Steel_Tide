@@ -136,8 +136,9 @@ def save_stasset(path: str, grid: np.ndarray) -> None:
         dim_z,        # H
         0,            # I reserved
     )
-    # Transpose to (z, y, x) then ravel so X varies fastest in the byte stream.
-    payload = np.transpose(grid, (2, 1, 0)).ravel(order="C")
+    # Ravel in Fortran order so X varies fastest in the byte stream (matches C#/HLSL indexing)
+    # C# formula: index = x + y*dim_x + z*dim_x*dim_y requires X to vary fastest
+    payload = grid.ravel(order="F")
     with open(path, "wb") as fh:
         fh.write(header)
         fh.write(payload.astype(VOXEL_DTYPE).tobytes())
@@ -158,5 +159,5 @@ def load_stasset(path: str) -> np.ndarray:
             raise ValueError(f"unsupported version {version}")
         count = dim_x * dim_y * dim_z
         payload = np.frombuffer(fh.read(count * 2), dtype=VOXEL_DTYPE, count=count)
-    # Inverse of the save transpose: (z, y, x) -> (x, y, z).
-    return payload.reshape((dim_z, dim_y, dim_x)).transpose(2, 1, 0).copy()
+    # Reshape directly to (x, y, z) with Fortran order (X varies fastest)
+    return payload.reshape((dim_x, dim_y, dim_z), order="F").copy()

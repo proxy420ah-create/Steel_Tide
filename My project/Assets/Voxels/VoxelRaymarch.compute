@@ -1,5 +1,6 @@
 // Steel Tide: First Device — Voxels / GPU Raymarching
 // VoxelRaymarch.compute
+// [RECOMPILE TRIGGER - DDA FIX APPLIED]
 //
 // Skeleton compute shader that renders a 3D voxel volume via GPU raymarching.
 // Each voxel is a PACKED 16-bit word (R16_UInt: 2 bytes per voxel), matching the
@@ -26,33 +27,69 @@ uint VxShape(uint v)     { return (v >> VX_SHAPE_SHIFT) & VX_SHAPE_MASK; }
 uint VxRotation(uint v)  { return (v >> VX_ROTATION_SHIFT) & VX_ROTATION_MASK; }
 
 // ---- Bindings ---------------------------------------------------------------
-// Packed voxel words in a 3D texture (R16_UInt: 2 bytes per voxel).
-Texture3D<uint>      _VoxelVolume;
-RWTexture2D<float4>  _Output;           // screen-space color target
+// Packed voxel words as structured data (direct integer access, no float conversion)
+StructuredBuffer<uint>   _VoxelData;    // Array of packed 16-bit voxel structs
+RWTexture2D<float4>      _Output;       // screen-space color target
 
 // Per-material color lookup (index by 9-bit material ID). Up to 512 entries.
 StructuredBuffer<float4> _MaterialColors;
 
-float3 _VolumeDims;        // voxel counts (x,y,z)
+int3   _VolumeDims;        // voxel counts (x,y,z) — EXPLICIT integer bounds
 float  _VoxelSize;         // world units per voxel
 float3 _CameraOrigin;      // world space
-float4x4 _InvViewProj;     // for reconstructing ray dirs from screen uv
+float4x4 _CameraToWorld;   // camera-to-world matrix
+float4x4 _InvProjection;   // inverse projection matrix
 float2 _ScreenSize;        // pixels
 int    _MaxSteps;          // safety cap on DDA iterations
+float4 _BackgroundColor;   // fallback color when rays miss
 
 // ---- Helpers ----------------------------------------------------------------
 bool InBounds(int3 v)
 {
-    return all(v >= int3(0,0,0)) && all(v < (int3)_VolumeDims);
+    return all(v >= int3(0,0,0)) && all(v < _VolumeDims);
+}
+
+// Convert 3D voxel coordinates to 1D buffer index
+int VoxelIndex(int3 v)
+{
+    return v.x + v.y * _VolumeDims.x + v.z * _VolumeDims.x * _VolumeDims.y;
+}
+
+// AABB Ray Intersection: returns true if ray hits the box, sets tNear and tFar
+bool RayAABBIntersection(float3 rayOrigin, float3 rayDir, float3 boxMin, float3 boxMax, out float tNear, out float tFar)
+{
+    float3 invDir = 1.0 / rayDir;
+    float3 t0 = (boxMin - rayOrigin) * invDir;
+    float3 t1 = (boxMax - rayOrigin) * invDir;
+    
+    float3 tMin = min(t0, t1);
+    float3 tMax = max(t0, t1);
+    
+    tNear = max(max(tMin.x, tMin.y), tMin.z);
+    tFar = min(min(tMax.x, tMax.y), tMax.z);
+    
+    return tNear <= tFar && tFar >= 0.0;
 }
 
 float3 RayDirFromUV(float2 uv)
 {
-    // uv in [0,1]; reconstruct a world-space direction through the pixel.
-    float4 clip = float4(uv * 2.0 - 1.0, 1.0, 1.0);
-    float4 world = mul(_InvViewProj, clip);
-    world /= world.w;
-    return normalize(world.xyz - _CameraOrigin);
+    // Convert UV [0,1] to NDC [-1,1], place at near plane (Z=0 in view space)
+    float2 ndc = uv * 2.0 - 1.0;
+    
+    // Reconstruct view-space ray direction
+    float4 clipNear = float4(ndc.x, ndc.y, 0.0, 1.0);
+    float4 clipFar  = float4(ndc.x, ndc.y, 1.0, 1.0);
+    
+    float4 viewNear = mul(_InvProjection, clipNear);
+    float4 viewFar  = mul(_InvProjection, clipFar);
+    viewNear /= viewNear.w;
+    viewFar  /= viewFar.w;
+    
+    float3 viewDir = normalize(viewFar.xyz - viewNear.xyz);
+    
+    // Transform to world space
+    float3 worldDir = mul((float3x3)_CameraToWorld, viewDir);
+    return normalize(worldDir);
 }
 
 // ---- Kernel -----------------------------------------------------------------
@@ -66,17 +103,59 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
     float3 ro = _CameraOrigin;
     float3 rd = RayDirFromUV(uv);
 
-    // Amanatides-Woo DDA setup in voxel space.
-    float3 p = ro / _VoxelSize;
+    float4 color = _BackgroundColor; // default to background
+    
+    // Volume bounds in world space
+    float3 volumeMin = float3(0, 0, 0);
+    float3 volumeMax = float3(_VolumeDims) * _VoxelSize;
+    
+    // Test ray-box intersection
+    float tNear, tFar;
+    if (!RayAABBIntersection(ro, rd, volumeMin, volumeMax, tNear, tFar))
+    {
+        _Output[id.xy] = color; // Ray misses volume entirely
+        return;
+    }
+    
+    // DIAGNOSTIC: Color pixels that hit the volume bounding box
+    // If this shows a solid rectangle, ray-box intersection works
+    // _Output[id.xy] = float4(1, 0, 1, 1); // Magenta = ray hit volume
+    // return;
+    
+    // Start raymarching at volume entry point (or camera if inside volume)
+    float tStart = max(tNear, 0.0);
+    float3 startPos = ro + rd * tStart;
+    
+    // Nudge start position slightly inside volume to avoid floating point edge cases
+    startPos = ro + rd * (tStart + 0.001);
+    
+    // Amanatides-Woo DDA setup in voxel space, starting at entry point
+    float3 p = startPos / _VoxelSize;
     int3 voxel = (int3)floor(p);
+    
+    // Clamp starting voxel to volume bounds (safety for edge cases)
+    voxel = clamp(voxel, int3(0,0,0), _VolumeDims - int3(1,1,1));
+    
     int3 step = (int3)sign(rd);
 
-    float3 invDir = 1.0 / max(abs(rd), 1e-6);
-    float3 tDelta = invDir;
-    float3 nextB  = floor(p) + max(step, 0);
-    float3 tMax   = (nextB - p) * invDir;
-
-    float4 color = float4(0, 0, 0, 0); // background = transparent/clear
+    // Calculate tDelta and tMax for DDA traversal
+    float3 deltaDist = abs(_VoxelSize / rd);
+    
+    // Distance to next voxel boundary
+    float3 sideDist;
+    if (rd.x < 0) sideDist.x = (p.x - float(voxel.x)) * deltaDist.x;
+    else sideDist.x = (float(voxel.x + 1) - p.x) * deltaDist.x;
+    
+    if (rd.y < 0) sideDist.y = (p.y - float(voxel.y)) * deltaDist.y;
+    else sideDist.y = (float(voxel.y + 1) - p.y) * deltaDist.y;
+    
+    if (rd.z < 0) sideDist.z = (p.z - float(voxel.z)) * deltaDist.z;
+    else sideDist.z = (float(voxel.z + 1) - p.z) * deltaDist.z;
+    
+    float3 tMax = sideDist;
+    float3 tDelta = deltaDist;
+    
+    float3 normal = float3(0, 1, 0); // Track which face was hit for proper shading
 
     [loop]
     for (int i = 0; i < _MaxSteps; ++i)
@@ -84,24 +163,62 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
         if (!InBounds(voxel))
             break;
 
-        uint packed = _VoxelVolume.Load(int4(voxel, 0));
-        uint mat = VxMaterial(packed); // mask low 9 bits; ignore shape/rotation here
+        // Load voxel data directly as uint (no float conversion needed!)
+        uint packed = _VoxelData[VoxelIndex(voxel)];
+        uint mat = VxMaterial(packed);
+        
+        // DIAGNOSTIC: Force all in-bounds voxels to render as solid
+        // Uncomment to test if indexing is the issue
+        // mat = 3u; // Force concrete material for all voxels
+        
         if (mat != 0u) // 0 = Air
         {
-            color = _MaterialColors[mat];
-            break; // first solid hit (extend with shading / shape SDF later)
+            // Clamp material ID to valid range (safety check)
+            mat = min(mat, 15u);
+            
+            // Get base material color
+            float4 baseColor = _MaterialColors[mat];
+            
+            // FLAT-COLOR SHADING: Use the face normal that was just crossed
+            // Light direction: slightly above and to the right for clear 3D definition
+            float3 lightDir = normalize(float3(0.5, 0.8, -0.3));
+            float diffuse = max(0.3, dot(normal, lightDir)); // Min 30% ambient
+            
+            color = float4(baseColor.rgb * diffuse, baseColor.a);
+            break;
         }
 
-        // advance along smallest tMax axis
+        // Advance to next voxel along smallest tMax axis
+        // Track the face normal for proper flat-color shading
         if (tMax.x < tMax.y)
         {
-            if (tMax.x < tMax.z) { voxel.x += step.x; tMax.x += tDelta.x; }
-            else                 { voxel.z += step.z; tMax.z += tDelta.z; }
+            if (tMax.x < tMax.z) 
+            { 
+                voxel.x += step.x; 
+                tMax.x += tDelta.x;
+                normal = float3(-step.x, 0, 0); // X-axis face
+            }
+            else
+            { 
+                voxel.z += step.z; 
+                tMax.z += tDelta.z;
+                normal = float3(0, 0, -step.z); // Z-axis face
+            }
         }
         else
         {
-            if (tMax.y < tMax.z) { voxel.y += step.y; tMax.y += tDelta.y; }
-            else                 { voxel.z += step.z; tMax.z += tDelta.z; }
+            if (tMax.y < tMax.z) 
+            { 
+                voxel.y += step.y; 
+                tMax.y += tDelta.y;
+                normal = float3(0, -step.y, 0); // Y-axis face
+            }
+            else
+            { 
+                voxel.z += step.z; 
+                tMax.z += tDelta.z;
+                normal = float3(0, 0, -step.z); // Z-axis face
+            }
         }
     }
 

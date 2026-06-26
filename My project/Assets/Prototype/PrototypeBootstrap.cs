@@ -10,6 +10,7 @@
 //
 // See: README.md (Phase 1), design/LAYER_BALANCE.md (§3)
 
+using System.IO;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
@@ -21,8 +22,16 @@ namespace SteelTide.Prototype
     public class PrototypeBootstrap : MonoBehaviour
     {
         [Header("Voxel Sandbox")]
-        public int3   volumeDims = new int3(128, 64, 128);
+        public string assetFileName = "test_cube.stasset";  // loaded from StreamingAssets
         public float  voxelSize  = 0.5f;
+        public VoxelRenderer voxelRenderer;  // assign in Inspector to wire GPU rendering
+        public VoxelWeaponController weaponController;  // assign in Inspector for interactive destruction
+
+        private int3 volumeDims;  // set by loaded asset
+        private ComputeBuffer _voxelBuffer;  // GPU-side voxel data (StructuredBuffer)
+        
+        // Public property for components to pull buffer reference
+        public ComputeBuffer GeneratedVoxelBuffer => _voxelBuffer;
 
         [Header("Penetration Test")]
         public float  beamPower  = 200f;
@@ -43,8 +52,24 @@ namespace SteelTide.Prototype
 
         void Start()
         {
+            // Auto-locate components if not manually assigned in Inspector
+            if (voxelRenderer == null)
+            {
+                voxelRenderer = FindFirstObjectByType<VoxelRenderer>();
+                if (voxelRenderer != null)
+                    Debug.Log("[SteelTide] Auto-located VoxelRenderer component.");
+            }
+            
+            if (weaponController == null)
+            {
+                weaponController = FindFirstObjectByType<VoxelWeaponController>();
+                if (weaponController != null)
+                    Debug.Log("[SteelTide] Auto-located VoxelWeaponController component.");
+            }
+
             BuildMaterialTables();
-            BuildCitySandbox();      // Deliverable 1
+            LoadVoxelAsset();        // Deliverable 1: load from .stasset
+            UploadVoxelTextureToGPU();  // upload to GPU for rendering
             RunPenetrationTest();    // Deliverable 2
         }
 
@@ -53,26 +78,81 @@ namespace SteelTide.Prototype
             StepWithdrawalSandbox(Time.deltaTime); // Deliverable 3
         }
 
-        // ---- Deliverable 1: micro-voxel city buffer -------------------------
-        private void BuildCitySandbox()
+        // ---- Deliverable 1: load voxel asset from .stasset file -------------
+        private void LoadVoxelAsset()
         {
-            int count = volumeDims.x * volumeDims.y * volumeDims.z;
-            _volume = new NativeArray<ushort>(count, Allocator.Persistent);
-
-            // Ground slab (concrete) + a few solid building boxes for testing.
-            // Sandbox voxels are plain Cube/North, so the packed word == material id.
-            for (int z = 0; z < volumeDims.z; z++)
-            for (int y = 0; y < volumeDims.y; y++)
-            for (int x = 0; x < volumeDims.x; x++)
+            string path = Path.Combine(Application.streamingAssetsPath, assetFileName);
+            if (!File.Exists(path))
             {
-                ushort mat = MaterialId.Air;
-                if (y < 2) mat = MaterialId.Concrete;                // ground
-                else if ((x / 16 + z / 16) % 3 == 0 && y < 24)       // buildings
-                    mat = MaterialId.Concrete;
-                _volume[Index(x, y, z)] = VoxelBits.Pack(ShapeId.Cube, RotationId.North, mat);
+                Debug.LogError($"[SteelTide] Asset not found: {path}");
+                return;
             }
 
-            Debug.Log($"[SteelTide] City sandbox built: {count} voxels ({volumeDims}).");
+            StAsset asset = StAssetReader.Load(path, Allocator.Persistent);
+            volumeDims = asset.dims;
+            _volume = asset.volume;  // take ownership of the NativeArray
+
+            int solid = 0;
+            for (int i = 0; i < _volume.Length; i++)
+                if (VoxelBits.Material(_volume[i]) != MaterialId.Air)
+                    solid++;
+
+            Debug.Log($"[SteelTide] Loaded '{assetFileName}': {volumeDims} grid, " +
+                      $"{solid}/{_volume.Length} solid voxels ({100f * solid / _volume.Length:F1}%)");
+        }
+
+        // ---- GPU Upload: NativeArray -> Texture3D ---------------------------
+        private void UploadVoxelTextureToGPU()
+        {
+            if (_volume.Length == 0)
+            {
+                Debug.LogWarning("[SteelTide] No voxel data to upload.");
+                return;
+            }
+
+            // Create ComputeBuffer for direct integer storage (no float conversion!)
+            int totalVoxels = volumeDims.x * volumeDims.y * volumeDims.z;
+            _voxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
+
+            // Upload voxel data directly (ushort → uint, no precision loss)
+            uint[] voxelData = new uint[_volume.Length];
+            int nonZeroCount = 0;
+            for (int i = 0; i < _volume.Length; i++)
+            {
+                voxelData[i] = _volume[i];  // Direct copy, no float conversion!
+                if (voxelData[i] != 0) nonZeroCount++;
+            }
+
+            _voxelBuffer.SetData(voxelData);
+            
+            Debug.Log($"[SteelTide] Created ComputeBuffer: {totalVoxels} voxels ({totalVoxels * sizeof(uint)} bytes)");
+            Debug.Log($"[SteelTide] Buffer contains {nonZeroCount}/{totalVoxels} non-zero values");
+            Debug.Log($"[SteelTide] Sample values: [0]={voxelData[0]}, [256]={voxelData[256]}, [511]={voxelData[511]}");
+            Debug.Log($"[SteelTide] GeneratedVoxelBuffer property returns: {(GeneratedVoxelBuffer != null ? "VALID" : "NULL")}");
+
+            // Wire the buffer to the renderer (if assigned).
+            if (voxelRenderer != null)
+            {
+                Debug.Log($"[SteelTide] VoxelRenderer found, assigning buffer directly...");
+                voxelRenderer.voxelBuffer = _voxelBuffer;
+                voxelRenderer.volumeDims = volumeDims;
+                voxelRenderer.voxelSize = voxelSize;
+                Debug.Log($"[SteelTide] Uploaded {totalVoxels * sizeof(uint)} bytes to GPU ComputeBuffer.");
+                Debug.Log($"[SteelTide] Verification: voxelRenderer.voxelBuffer is now {(voxelRenderer.voxelBuffer != null ? "ASSIGNED" : "NULL")}");
+            }
+            else
+            {
+                Debug.LogWarning("[SteelTide] VoxelRenderer not assigned — cube won't render!");
+            }
+
+            // Wire the weapon controller for interactive destruction (if assigned).
+            if (weaponController != null)
+            {
+                weaponController.InitializeVolume(_volume, volumeDims, _voxelBuffer);
+                weaponController.voxelSize = voxelSize;
+                weaponController.volumeOffset = Vector3.zero;
+                Debug.Log("[SteelTide] VoxelWeaponController initialized — left-click to blast craters!");
+            }
         }
 
         // ---- Deliverable 2: penetration / shredding -------------------------
@@ -146,6 +226,7 @@ namespace SteelTide.Prototype
             if (_volume.IsCreated)         _volume.Dispose();
             if (_densityById.IsCreated)    _densityById.Dispose();
             if (_shreddableById.IsCreated) _shreddableById.Dispose();
+            if (_voxelBuffer != null)      _voxelBuffer.Release();
         }
     }
 }
