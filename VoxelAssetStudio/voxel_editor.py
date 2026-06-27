@@ -19,6 +19,11 @@ from stasset_io import load_stasset, save_stasset
 from shape_generator import (generate_cube, generate_sphere, generate_hollow_shell, generate_test_cube,
                              generate_armored_cube, generate_armored_sphere, generate_armored_cylinder,
                              generate_truly_hollow_sphere, generate_truly_hollow_cube)
+from procedural_buildings import (generate_building_2story, generate_building_lshape,
+                                  generate_building_simple_house, generate_ground_plane, create_lod_version)
+from procedural_characters import (generate_humanoid, generate_mech_walker,
+                                   generate_simple_humanoid, generate_combat_mech)
+from procedural_tilesets import URBAN_RESIDENTIAL_TILESET
 
 class VoxelEditor(QMainWindow):
     """Main application window for Voxel Asset Studio"""
@@ -34,6 +39,11 @@ class VoxelEditor(QMainWindow):
         self.grid_size = (32, 32, 32)
         self.current_file = None
         self.modified = False
+        
+        # Generation state (for Re-Generate button)
+        self.last_generator = None  # Function reference
+        self.last_generator_name = None  # Display name
+        self.last_seed = None  # Random seed
         
         # Settings
         self.settings = {
@@ -86,8 +96,21 @@ class VoxelEditor(QMainWindow):
         self.statusBar().showMessage("Ready")
         
     def init_menu(self):
-        """Create menu bar"""
+        """Create menu bar and toolbar"""
         menubar = self.menuBar()
+        
+        # Toolbar
+        toolbar = self.addToolBar("Main Toolbar")
+        toolbar.setMovable(False)
+        
+        # Re-Generate button
+        self.regenerate_action = QAction("🔄 Re-Generate", self)
+        self.regenerate_action.setToolTip("Re-generate current asset with new random seed")
+        self.regenerate_action.setEnabled(False)  # Disabled until something is generated
+        self.regenerate_action.triggered.connect(self.regenerate_current)
+        toolbar.addAction(self.regenerate_action)
+        
+        toolbar.addSeparator()
         
         # File menu
         file_menu = menubar.addMenu("File")
@@ -162,6 +185,51 @@ class VoxelEditor(QMainWindow):
         hollow_cube_action = QAction("⭕ Truly Hollow Cube (Empty Interior)", self)
         hollow_cube_action.triggered.connect(self.generate_truly_hollow_cube)
         generate_menu.addAction(hollow_cube_action)
+        
+        generate_menu.addSeparator()
+        
+        # Procedural buildings (with auto-LOD)
+        building_2story_action = QAction("🏢 Building: 2-Story (32×64×32 + LOD)", self)
+        building_2story_action.triggered.connect(self.generate_building_2story)
+        generate_menu.addAction(building_2story_action)
+        
+        building_lshape_action = QAction("🏠 Building: L-Shape House (48×32×48 + LOD)", self)
+        building_lshape_action.triggered.connect(self.generate_building_lshape)
+        generate_menu.addAction(building_lshape_action)
+        
+        building_simple_action = QAction("🏘️ Building: Simple House (32×24×24 + LOD)", self)
+        building_simple_action.triggered.connect(self.generate_building_simple)
+        generate_menu.addAction(building_simple_action)
+        
+        generate_menu.addSeparator()
+        
+        # Terrain
+        ground_plane_action = QAction("🟫 Terrain: Ground Plane (128×2×128, 16m×0.25m)", self)
+        ground_plane_action.triggered.connect(self.generate_ground_plane)
+        generate_menu.addAction(ground_plane_action)
+        
+        generate_menu.addSeparator()
+        
+        # Characters
+        humanoid_action = QAction("🧍 Character: Humanoid (6×16×4, 2m tall)", self)
+        humanoid_action.triggered.connect(self.generate_humanoid)
+        generate_menu.addAction(humanoid_action)
+        
+        mech_action = QAction("🤖 Character: Combat Mech (12×24×8, 3m tall)", self)
+        mech_action.triggered.connect(self.generate_mech)
+        generate_menu.addAction(mech_action)
+        
+        generate_menu.addSeparator()
+        
+        # Tilesets submenu
+        tileset_menu = generate_menu.addMenu("🌍 Tilesets")
+        
+        # Urban Residential tileset
+        urban_menu = tileset_menu.addMenu("Urban Residential (16m tiles)")
+        for tile_name, tile_func in URBAN_RESIDENTIAL_TILESET.items():
+            action = QAction(tile_name, self)
+            action.triggered.connect(lambda checked, name=tile_name, func=tile_func: self.generate_tileset(name, func))
+            urban_menu.addAction(action)
         
         # Options menu
         options_menu = menubar.addMenu("Options")
@@ -357,6 +425,177 @@ class VoxelEditor(QMainWindow):
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated truly hollow cube (empty interior)")
+    
+    def generate_building_2story(self):
+        """Generate 2-story building with auto-LOD"""
+        import time
+        start = time.time()
+        
+        # Generate detailed building
+        self.voxels = generate_building_2story(width=32, height=64, depth=32, seed=None)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        
+        # Create LOD version
+        lod_grid = create_lod_version(self.voxels, lod_factor=8)
+        
+        elapsed = time.time() - start
+        voxel_count = np.count_nonzero(self.voxels)
+        lod_count = np.count_nonzero(lod_grid)
+        
+        self.statusBar().showMessage(
+            f"✅ Generated 2-story building | "
+            f"Detail: {voxel_count:,} voxels ({self.grid_size[0]}×{self.grid_size[1]}×{self.grid_size[2]}) | "
+            f"LOD: {lod_count:,} voxels ({lod_grid.shape[0]}×{lod_grid.shape[1]}×{lod_grid.shape[2]}) | "
+            f"Time: {elapsed:.2f}s"
+        )
+        
+        # TODO: Save LOD version as separate file
+        print(f"🏢 2-Story Building Generated:")
+        print(f"   Detail Grid: {self.grid_size} = {voxel_count:,} voxels")
+        print(f"   LOD Grid: {lod_grid.shape} = {lod_count:,} voxels")
+        print(f"   LOD Reduction: {voxel_count/max(1,lod_count):.1f}x fewer voxels")
+    
+    def generate_building_lshape(self):
+        """Generate L-shaped house with auto-LOD"""
+        import time
+        start = time.time()
+        
+        # Generate detailed building (48×32×48 - horizontal L, taller)
+        self.voxels = generate_building_lshape(width=48, height=32, depth=48, seed=None)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        
+        # Create LOD version
+        lod_grid = create_lod_version(self.voxels, lod_factor=8)
+        
+        elapsed = time.time() - start
+        voxel_count = np.count_nonzero(self.voxels)
+        lod_count = np.count_nonzero(lod_grid)
+        
+        self.statusBar().showMessage(
+            f"✅ Generated L-shape house | "
+            f"Detail: {voxel_count:,} voxels | "
+            f"LOD: {lod_count:,} voxels | "
+            f"Time: {elapsed:.2f}s"
+        )
+        
+        print(f"🏠 L-Shape House Generated:")
+        print(f"   Detail Grid: {self.grid_size} = {voxel_count:,} voxels")
+        print(f"   LOD Grid: {lod_grid.shape} = {lod_count:,} voxels")
+        print(f"   LOD Reduction: {voxel_count/max(1,lod_count):.1f}x fewer voxels")
+    
+    def generate_building_simple(self):
+        """Generate simple house with auto-LOD"""
+        import time
+        start = time.time()
+        
+        # Generate detailed building (32×24×24 - single story, taller)
+        self.voxels = generate_building_simple_house(width=32, height=24, depth=24, seed=None)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        
+        # Create LOD version
+        lod_grid = create_lod_version(self.voxels, lod_factor=8)
+        
+        elapsed = time.time() - start
+        voxel_count = np.count_nonzero(self.voxels)
+        lod_count = np.count_nonzero(lod_grid)
+        
+        self.statusBar().showMessage(
+            f"✅ Generated simple house | "
+            f"Detail: {voxel_count:,} voxels | "
+            f"LOD: {lod_count:,} voxels | "
+            f"Time: {elapsed:.2f}s"
+        )
+        
+        print(f"🏘️ Simple House Generated:")
+        print(f"   Detail Grid: {self.grid_size} = {voxel_count:,} voxels")
+        print(f"   LOD Grid: {lod_grid.shape} = {lod_count:,} voxels")
+        print(f"   LOD Reduction: {voxel_count/max(1,lod_count):.1f}x fewer voxels")
+    
+    def generate_ground_plane(self):
+        """Generate ground plane for streets/terrain"""
+        import time
+        start = time.time()
+        
+        # Generate ground plane (128×2×128 - 16m × 0.25m × 16m)
+        self.voxels = generate_ground_plane(width=128, height=2, depth=128)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        
+        elapsed = time.time() - start
+        voxel_count = np.count_nonzero(self.voxels)
+        
+        self.statusBar().showMessage(
+            f"✅ Generated ground plane | "
+            f"Size: 16m × 0.25m × 16m | "
+            f"Voxels: {voxel_count:,} | "
+            f"Time: {elapsed:.2f}s"
+        )
+        
+        print(f"🟫 Ground Plane Generated:")
+        print(f"   Grid: {self.grid_size} = {voxel_count:,} voxels")
+        print(f"   World Size: 16m × 0.25m × 16m")
+        print(f"   Perfect for streets and terrain!")
+    
+    def generate_humanoid(self):
+        """Generate humanoid character"""
+        import time
+        start = time.time()
+        
+        # Generate humanoid (6×16×4 - 2m tall)
+        self.voxels = generate_simple_humanoid(seed=None)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        
+        elapsed = time.time() - start
+        voxel_count = np.count_nonzero(self.voxels)
+        
+        self.statusBar().showMessage(
+            f"✅ Generated humanoid character | "
+            f"Voxels: {voxel_count:,} | "
+            f"Time: {elapsed:.2f}s"
+        )
+        
+        print(f"🧍 Humanoid Character Generated:")
+        print(f"   Grid: {self.grid_size} = {voxel_count:,} voxels")
+        print(f"   Height: 2.0m (16 voxels × 0.125m)")
+    
+    def generate_mech(self):
+        """Generate combat mech"""
+        import time
+        start = time.time()
+        
+        # Generate combat mech (12×24×8 - 3m tall)
+        self.voxels = generate_combat_mech(seed=None)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        
+        elapsed = time.time() - start
+        voxel_count = np.count_nonzero(self.voxels)
+        
+        self.statusBar().showMessage(
+            f"✅ Generated combat mech | "
+            f"Voxels: {voxel_count:,} | "
+            f"Time: {elapsed:.2f}s"
+        )
+        
+        print(f"🤖 Combat Mech Generated:")
+        print(f"   Grid: {self.grid_size} = {voxel_count:,} voxels")
+        print(f"   Height: 3.0m (24 voxels × 0.125m)")
         
     def update_status(self):
         """Update status bar with live info"""
@@ -401,3 +640,60 @@ class VoxelEditor(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+    
+    # ========== TILESET GENERATION ==========
+    
+    def generate_tileset(self, tile_name, tile_func):
+        """Generate a tileset tile with random seed"""
+        import time
+        seed = int(time.time() * 1000) % 10000  # Random seed from timestamp
+        
+        print(f"🌍 Generating tileset: {tile_name} (seed: {seed})")
+        
+        # Generate tile
+        self.voxels = tile_func(seed=seed)
+        self.grid_size = self.voxels.shape
+        
+        # Update viewport
+        self.viewport.set_voxels(self.voxels)
+        
+        # Store generation state for Re-Generate
+        self.last_generator = tile_func
+        self.last_generator_name = tile_name
+        self.last_seed = seed
+        self.regenerate_action.setEnabled(True)
+        
+        # Mark as modified
+        self.modified = True
+        self.update_title()
+        self.update_status()
+        
+        print(f"✅ Generated {tile_name}: {self.grid_size[0]}×{self.grid_size[1]}×{self.grid_size[2]} voxels")
+    
+    def regenerate_current(self):
+        """Re-generate the current asset with a new random seed"""
+        if self.last_generator is None:
+            print("⚠️ No generator to re-run")
+            return
+        
+        import time
+        new_seed = int(time.time() * 1000) % 10000  # New random seed
+        
+        print(f"🔄 Re-generating: {self.last_generator_name} (new seed: {new_seed})")
+        
+        # Re-generate with new seed
+        self.voxels = self.last_generator(seed=new_seed)
+        self.grid_size = self.voxels.shape
+        
+        # Update viewport
+        self.viewport.set_voxels(self.voxels)
+        
+        # Update seed
+        self.last_seed = new_seed
+        
+        # Mark as modified
+        self.modified = True
+        self.update_title()
+        self.update_status()
+        
+        print(f"✅ Re-generated {self.last_generator_name} with new variation")
