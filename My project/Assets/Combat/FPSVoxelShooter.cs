@@ -58,37 +58,16 @@ namespace SteelTide.Combat
         
         void Fire()
         {
-            // Shoot ray from center of screen (crosshair position)
-            Ray cameraRay = fpsCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-            
-            RaycastHit hit;
-            if (Physics.Raycast(cameraRay, out hit, range))
+            // Use VoxelWeaponController's DDA raymarching directly
+            // This bypasses Physics.Raycast and can hit interior voxels!
+            if (weaponController != null)
             {
-                // Check if we hit a voxel volume (proxy collider)
-                VoxelVolumeProxy proxy = hit.collider.GetComponent<VoxelVolumeProxy>();
-                if (proxy != null)
-                {
-                    // Convert world hit point to voxel coordinates
-                    Vector3 localHit = proxy.transform.InverseTransformPoint(hit.point);
-                    
-                    // Nudge slightly inward along ray direction to ensure we hit the voxel, not the edge
-                    localHit -= cameraRay.direction.normalized * 0.01f;
-                    
-                    // Convert to voxel grid coordinates
-                    int3 voxelCoords = new int3(
-                        Mathf.FloorToInt(localHit.x / proxy.voxelSize),
-                        Mathf.FloorToInt(localHit.y / proxy.voxelSize),
-                        Mathf.FloorToInt(localHit.z / proxy.voxelSize)
-                    );
-                    
-                    // Clamp to volume bounds
-                    voxelCoords = math.clamp(voxelCoords, int3.zero, proxy.volumeDims - 1);
-                    
-                    // Destroy the voxel
-                    proxy.DestroyVoxel(voxelCoords);
-                    
-                    Debug.Log($"[FPSVoxelShooter] Destroyed voxel at {voxelCoords}");
-                }
+                weaponController.FireWeapon();
+                Debug.Log($"[{gameObject.name}/FPSVoxelShooter] FIRE ► | Using DDA raymarching (can penetrate interior voxels)");
+            }
+            else
+            {
+                Debug.LogWarning($"[{gameObject.name}/FPSVoxelShooter] No weapon controller assigned!");
             }
         }
     }

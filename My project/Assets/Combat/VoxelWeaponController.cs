@@ -35,6 +35,7 @@ namespace SteelTide.Combat
         void Start()
         {
             _camera = GetComponent<Camera>();
+            Debug.Log($"[{gameObject.name}/VoxelWeaponController] START | Camera: {_camera.name} | Damage Radius: {damageRadius}");
         }
 
         void Update()
@@ -46,18 +47,22 @@ namespace SteelTide.Combat
                 if (bootstrap != null && bootstrap.GeneratedVoxelBuffer != null)
                 {
                     voxelBuffer = bootstrap.GeneratedVoxelBuffer;
-                    Debug.Log("[VoxelWeaponController] Pulled ComputeBuffer reference from PrototypeBootstrap.");
+                    Debug.Log($"[{gameObject.name}/VoxelWeaponController] ✓ Pulled ComputeBuffer from {bootstrap.gameObject.name}/PrototypeBootstrap");
                 }
             }
             
+            // NOTE: Input handling removed - this component is now a passive service
+            // called by FPSVoxelShooter → VoxelVolumeProxy → DestroyVoxelAt()
+            // If you want direct click-to-destroy testing, uncomment below:
+            /*
             if (!_volumeReady || !voxelData.IsCreated)
                 return;
 
-            // Unity 6 New Input System: check for left mouse button press
             if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
             {
                 FireWeapon();
             }
+            */
         }
 
         public void InitializeVolume(NativeArray<ushort> data, int3 dims, ComputeBuffer buffer)
@@ -66,21 +71,46 @@ namespace SteelTide.Combat
             volumeDims = dims;
             voxelBuffer = buffer;
             _volumeReady = true;
-            Debug.Log("[VoxelWeaponController] Initialized with volume dimensions: " + dims);
+            int totalVoxels = dims.x * dims.y * dims.z;
+            Debug.Log($"[{gameObject.name}/VoxelWeaponController] INIT ✓ | Dims: {dims} | Total Voxels: {totalVoxels:N0} | Voxel Size: {voxelSize}m | Offset: {volumeOffset:F2}");
         }
 
-        private void FireWeapon()
+        public void FireWeapon()
         {
-            // Unity 6 New Input System: get mouse position from modern API
-            Vector2 mousePos = Mouse.current.position.ReadValue();
-            Ray ray = _camera.ScreenPointToRay(mousePos);
+            // Shoot from screen center (crosshair position), not mouse cursor
+            Ray ray = _camera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
             
             // Convert to voxel space
             float3 rayOrigin = (float3)ray.origin - (float3)volumeOffset;
             float3 rayDir = math.normalize((float3)ray.direction);
 
+            // AABB intersection: Find where ray enters the voxel volume
+            float3 volumeMin = float3.zero;
+            float3 volumeMax = new float3(volumeDims.x, volumeDims.y, volumeDims.z) * voxelSize;
+            
+            float3 invDir = 1.0f / rayDir;
+            float3 t0 = (volumeMin - rayOrigin) * invDir;
+            float3 t1 = (volumeMax - rayOrigin) * invDir;
+            
+            float3 tmin = math.min(t0, t1);
+            float3 tmax = math.max(t0, t1);
+            
+            float tEnter = math.max(math.max(tmin.x, tmin.y), tmin.z);
+            float tExit = math.min(math.min(tmax.x, tmax.y), tmax.z);
+            
+            // Check if ray intersects volume
+            if (tExit < 0 || tEnter > tExit)
+            {
+                Debug.Log($"[{gameObject.name}/VoxelWeaponController] MISS — Ray doesn't intersect volume | Ray Origin: {ray.origin:F2} | Direction: {ray.direction:F2}");
+                return;
+            }
+            
+            // Start DDA from volume entry point (or ray origin if already inside)
+            float tStart = math.max(0, tEnter);
+            float3 startPoint = rayOrigin + rayDir * tStart;
+            
             // Simple DDA raycast to find first solid voxel
-            float3 p = rayOrigin / voxelSize;
+            float3 p = startPoint / voxelSize;
             int3 voxel = (int3)math.floor(p);
             int3 step = (int3)math.sign(rayDir);
 
@@ -123,7 +153,7 @@ namespace SteelTide.Combat
                 }
             }
 
-            Debug.Log("[VoxelWeaponController] Missed — no solid voxel hit");
+            Debug.Log($"[{gameObject.name}/VoxelWeaponController] MISS — No solid voxel hit | Ray Origin: {ray.origin:F2} | Direction: {ray.direction:F2} | Steps: {loopGuard}");
         }
 
         private void ApplyDamage(int3 centerVoxel, ushort currentMaterial)
@@ -196,8 +226,8 @@ namespace SteelTide.Combat
             {
                 // Upload modified data to GPU texture
                 UpdateGPUTexture();
-                Debug.Log($"[VoxelWeaponController] Hit at {centerVoxel}: {voxelsChanged} voxels changed " +
-                         $"(Material {currentMaterial})");
+                Vector3 worldPos = volumeOffset + new Vector3(centerVoxel.x, centerVoxel.y, centerVoxel.z) * voxelSize;
+                Debug.Log($"[{gameObject.name}/VoxelWeaponController] HIT ✓ | Voxel: {centerVoxel} | World Pos: {worldPos:F2} | Changed: {voxelsChanged} voxels | Material: {currentMaterial} | Damage Radius: {damageRadius}");
             }
         }
 

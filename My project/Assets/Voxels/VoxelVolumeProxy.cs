@@ -39,7 +39,7 @@ namespace SteelTide.Voxels
             if (weaponController == null)
                 weaponController = FindFirstObjectByType<VoxelWeaponController>();
                 
-            Debug.Log($"[VoxelVolumeProxy] Initialized proxy collider: {volumeDims} voxels, size {size}");
+            Debug.Log($"[{gameObject.name}/VoxelVolumeProxy] INIT ✓ | Dims: {volumeDims} | Voxel Size: {voxelSize}m | World Size: {size:F2} | Position: {transform.position:F2}");
         }
         
         public void DestroyVoxel(int3 voxelCoords)
@@ -53,7 +53,7 @@ namespace SteelTide.Voxels
             int totalVoxels = volumeDims.x * volumeDims.y * volumeDims.z;
             if (index < 0 || index >= totalVoxels)
             {
-                Debug.LogWarning($"[VoxelVolumeProxy] Voxel index {index} out of bounds (0-{totalVoxels-1})");
+                Debug.LogWarning($"[{gameObject.name}/VoxelVolumeProxy] ⚠ INDEX OUT OF BOUNDS | Coords: {voxelCoords} | Index: {index} | Valid Range: 0-{totalVoxels-1}");
                 return;
             }
             
@@ -61,11 +61,12 @@ namespace SteelTide.Voxels
             if (weaponController != null)
             {
                 weaponController.DestroyVoxelAt(index);
-                Debug.Log($"[VoxelVolumeProxy] Destroyed voxel at coords {voxelCoords}, index {index}");
+                Vector3 worldPos = transform.position + new Vector3(voxelCoords.x, voxelCoords.y, voxelCoords.z) * voxelSize;
+                Debug.Log($"[{gameObject.name}/VoxelVolumeProxy] DESTROY ✓ | Coords: {voxelCoords} | Index: {index} | World Pos: {worldPos:F2}");
             }
             else
             {
-                Debug.LogError("[VoxelVolumeProxy] No weapon controller assigned!");
+                Debug.LogError($"[{gameObject.name}/VoxelVolumeProxy] ✗ ERROR: No weapon controller assigned!");
             }
         }
         
