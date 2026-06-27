@@ -170,7 +170,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Combat.FPSVoxelShooter
   fpsCamera: {fileID: 1044275372}
-  weaponController: {fileID: 1044275369}
+  weaponController: {fileID: 1044275377}
   fireRate: 0.2
   range: 100
 --- !u!114 &164925340
@@ -458,11 +458,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Voxels.VoxelVolumeProxy
   volumeDims:
-    x: 8
-    y: 8
-    z: 8
-  voxelSize: 1
-  weaponController: {fileID: 1044275369}
+    x: 32
+    y: 32
+    z: 32
+  voxelSize: 0.125
+  weaponController: {fileID: 1044275377}
 --- !u!65 &383215829
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -482,8 +482,8 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 1, z: 1}
-  m_Center: {x: 0, y: 0, z: 0}
+  m_Size: {x: 4, y: 4, z: 4}
+  m_Center: {x: 2, y: 2, z: 2}
 --- !u!23 &383215830
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -791,10 +791,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 30d2250006dece04b9314e30158fbfbe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Prototype.PrototypeBootstrap
-  assetFileName: test_cube.stasset
-  voxelSize: 0.5
-  voxelRenderer: {fileID: 0}
-  weaponController: {fileID: 0}
+  assetFileName: HIghDensity32.stasset
+  voxelSize: 0.125
+  voxelRenderer: {fileID: 1044275375}
+  weaponController: {fileID: 1044275377}
   beamPower: 200
   arrivalRatePerSec: 4
   arrivalAccel: 1.08
@@ -876,7 +876,8 @@ GameObject:
   - component: {fileID: 1044275371}
   - component: {fileID: 1044275370}
   - component: {fileID: 1044275375}
-  - component: {fileID: 1044275369}
+  - component: {fileID: 1044275376}
+  - component: {fileID: 1044275377}
   m_Layer: 0
   m_Name: Player Camera
   m_TagString: MainCamera
@@ -884,25 +885,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1044275369
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1044275368}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9f3e36d22ac18cc4c86a2b140f590662, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Combat.VoxelWeaponController
-  volumeDims:
-    x: 0
-    y: 0
-    z: 0
-  voxelSize: 0.5
-  volumeOffset: {x: 0, y: 0, z: 0}
-  damageRadius: 1
 --- !u!114 &1044275370
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -964,7 +946,7 @@ Camera:
   m_GameObject: {fileID: 1044275368}
   m_Enabled: 1
   serializedVersion: 2
-  m_ClearFlags: 1
+  m_ClearFlags: 2
   m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
@@ -1014,13 +996,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1044275368}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0.08996401, z: -0, w: 0.9959451}
   m_LocalPosition: {x: 0, y: 0.6, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 164925338}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -10.323, z: 0}
 --- !u!114 &1044275375
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1035,11 +1017,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Voxels.VoxelRenderer
   raymarchShader: {fileID: 7200000, guid: 79d839410aed93046b69478581914c6b, type: 3}
   volumeDims:
-    x: 8
-    y: 8
-    z: 8
+    x: 32
+    y: 32
+    z: 32
   maxSteps: 256
-  voxelSize: 1
+  voxelSize: 0.125
   volumeOffset: {x: 0, y: 0, z: 0}
   showVolumeGizmo: 1
   editorVolumeDims:
@@ -1063,6 +1045,41 @@ MonoBehaviour:
   - {r: 0.85, g: 0.15, b: 0.15, a: 1}
   - {r: 0.9, g: 0.4, b: 0.1, a: 1}
   - {r: 0.8, g: 0.2, b: 0.2, a: 1}
+--- !u!114 &1044275376
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1044275368}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6a10ff501e3d44144af1c5e7a0dfce12, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Combat.RaycastDebugVisualizer
+  showDebugSphere: 1
+  debugColor: {r: 0, g: 1, b: 0, a: 1}
+  sphereSize: 0.5
+  fpsCamera: {fileID: 0}
+--- !u!114 &1044275377
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1044275368}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9f3e36d22ac18cc4c86a2b140f590662, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SteelTide.Combat.VoxelWeaponController
+  volumeDims:
+    x: 32
+    y: 32
+    z: 32
+  voxelSize: 0.125
+  volumeOffset: {x: 0, y: 0, z: 0}
+  damageRadius: 1
 --- !u!1 &1580319447
 GameObject:
   m_ObjectHideFlags: 0
