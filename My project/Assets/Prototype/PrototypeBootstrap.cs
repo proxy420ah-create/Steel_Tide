@@ -1,14 +1,11 @@
-// Steel Tide: First Device — Prototype / Vertical Slice
+// Steel Tide: First Device — Prototype / System Initializer
 // PrototypeBootstrap.cs
 //
-// Hardcoded entry point that assembles the Phase 1 vertical slice and exercises
-// the three required deliverables in a fully decoupled, data-oriented way:
+// Simplified bootstrap that initializes core systems.
+// Voxel asset loading is now handled by VoxelObject components on GameObjects.
 //
-//   1. Single City Sandbox Map  -> low-poly micro-voxel buffer grid
-//   2. Penetration Physics Test -> raw byte-array shredding via heavy beams
-//   3. Withdrawal Sandbox        -> HOLD_LINE -> RETREAT transition by arrival rate
-//
-// See: README.md (Phase 1), design/LAYER_BALANCE.md (§3)
+// Legacy functionality (penetration test, withdrawal sandbox) preserved for reference
+// but can be removed once fully migrated to new systems.
 
 using System.IO;
 using Unity.Collections;
@@ -21,16 +18,20 @@ namespace SteelTide.Prototype
 {
     public class PrototypeBootstrap : MonoBehaviour
     {
-        [Header("Voxel Sandbox")]
-        public string assetFileName = "test_cube.stasset";  // loaded from StreamingAssets
-        public float  voxelSize  = 0.5f;
-        public VoxelRenderer voxelRenderer;  // assign in Inspector to wire GPU rendering
-        public VoxelWeaponController weaponController;  // assign in Inspector for interactive destruction
-
-        private int3 volumeDims;  // set by loaded asset
-        private ComputeBuffer _voxelBuffer;  // GPU-side voxel data (StructuredBuffer)
+        [Header("System References")]
+        public VoxelRenderer voxelRenderer;  // Main camera renderer
+        public VoxelWeaponController weaponController;  // Weapon system
         
-        // Public property for components to pull buffer reference
+        [Header("Legacy Asset Loading (DEPRECATED - Use VoxelObject instead)")]
+        [Tooltip("This is deprecated. Create GameObjects with VoxelObject components instead.")]
+        public bool loadLegacyAsset = false;
+        public string assetFileName = "HighDensity32.stasset";
+        public float voxelSize = 0.125f;
+
+        private int3 volumeDims;
+        private ComputeBuffer _voxelBuffer;
+        
+        // Public property for legacy components
         public ComputeBuffer GeneratedVoxelBuffer => _voxelBuffer;
 
         [Header("Penetration Test")]
@@ -52,30 +53,47 @@ namespace SteelTide.Prototype
 
         void Start()
         {
-            // Auto-locate components if not manually assigned in Inspector
+            Debug.Log("[PrototypeBootstrap] Initializing Steel Tide systems...");
+            
+            // Auto-locate components if not manually assigned
             if (voxelRenderer == null)
             {
                 voxelRenderer = FindFirstObjectByType<VoxelRenderer>();
                 if (voxelRenderer != null)
-                    Debug.Log("[SteelTide] Auto-located VoxelRenderer component.");
+                    Debug.Log("[PrototypeBootstrap] ✓ Auto-located VoxelRenderer");
             }
             
             if (weaponController == null)
             {
                 weaponController = FindFirstObjectByType<VoxelWeaponController>();
                 if (weaponController != null)
-                    Debug.Log("[SteelTide] Auto-located VoxelWeaponController component.");
+                    Debug.Log("[PrototypeBootstrap] ✓ Auto-located VoxelWeaponController");
             }
 
-            BuildMaterialTables();
-            LoadVoxelAsset();        // Deliverable 1: load from .stasset
-            UploadVoxelTextureToGPU();  // upload to GPU for rendering
-            RunPenetrationTest();    // Deliverable 2
+            // Legacy asset loading (deprecated - use VoxelObject instead)
+            if (loadLegacyAsset)
+            {
+                Debug.LogWarning("[PrototypeBootstrap] Loading legacy asset - consider using VoxelObject components instead!");
+                BuildMaterialTables();
+                LoadVoxelAsset();
+                UploadVoxelTextureToGPU();
+                RunPenetrationTest();
+            }
+            else
+            {
+                Debug.Log("[PrototypeBootstrap] ✓ Legacy asset loading disabled - using VoxelObject system");
+            }
+            
+            Debug.Log("[PrototypeBootstrap] ✓ Initialization complete!");
         }
 
         void Update()
         {
-            StepWithdrawalSandbox(Time.deltaTime); // Deliverable 3
+            // Legacy withdrawal sandbox (can be removed)
+            if (loadLegacyAsset)
+            {
+                StepWithdrawalSandbox(Time.deltaTime);
+            }
         }
 
         // ---- Deliverable 1: load voxel asset from .stasset file -------------

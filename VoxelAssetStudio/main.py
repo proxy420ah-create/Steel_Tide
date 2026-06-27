@@ -45,25 +45,25 @@ def main():
     editor = VoxelEditor()
     editor.show()
     
-    # Auto-load HighDensity32.stasset if it exists
-    default_file = "../My project/Assets/StreamingAssets/HighDensity32.stasset"
-    if os.path.exists(default_file):
-        print(f"📂 Auto-loading: {default_file}")
-        editor.load_asset(default_file)
-    else:
-        print(f"⚠️ Default file not found: {default_file}")
-        print("   Use File → Open to load a voxel asset")
+    # Start with blank canvas - no auto-loading
+    print("📋 Starting with blank canvas")
+    print("   Use Generate menu to create procedural shapes")
     
     print()
     print("✅ Application ready!")
     print()
     print("🖱️ Mouse Controls:")
-    print("   - Left-click: Paint/interact with voxels")
+    print("   - Left-click: Paint/interact with voxels ✅")
     print("   - Middle-click: Pan camera")
     print("   - Right-click: Orbit camera")
     print("   - Wheel: Zoom in/out")
     print()
-    print("⚠️ Note: Voxel clicking not yet implemented")
+    print("⌨️ Keyboard:")
+    print("   - WASD: Pan camera")
+    print("   - Q/E: Pan up/down")
+    print()
+    print("🎨 Try clicking on a voxel to paint!")
+    print("⚠️ Note: Colors may appear uniform (OpenGL limitation)")
     print()
     
     sys.exit(app.exec())

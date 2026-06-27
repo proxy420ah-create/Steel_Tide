@@ -43,6 +43,9 @@ def load_stasset(filepath):
         voxels = np.frombuffer(voxel_bytes, dtype='<u2')
         voxels = voxels.reshape((width, height, depth))
         
+        # CRITICAL: Make a writable copy (frombuffer creates read-only view)
+        voxels = voxels.copy()
+        
     print(f"✅ Loaded {filepath}")
     print(f"   Dimensions: {width}×{height}×{depth}")
     print(f"   Total voxels: {count:,}")

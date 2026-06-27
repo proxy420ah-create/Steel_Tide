@@ -13,13 +13,17 @@ using UnityEngine;
 using UnityEngine.InputSystem;  // Unity 6 New Input System
 using Unity.Collections;
 using Unity.Mathematics;
+using System.Collections.Generic;
 
 namespace SteelTide.Combat
 {
     [RequireComponent(typeof(Camera))]
     public class VoxelWeaponController : MonoBehaviour
     {
-        [Header("Voxel Volume Reference")]
+        [Header("Multi-Volume System")]
+        public bool useMultiVolumeSystem = true;  // Use new VoxelObject system
+        
+        [Header("Legacy Single Volume (Bootstrap)")]
         public ComputeBuffer voxelBuffer;  // Set by PrototypeBootstrap
         public NativeArray<ushort> voxelData;  // CPU-side voxel data
         public int3 volumeDims;
@@ -77,7 +81,89 @@ namespace SteelTide.Combat
 
         public void FireWeapon()
         {
-            // Shoot from screen center (crosshair position), not mouse cursor
+            // Multi-volume system: Find and shoot closest VoxelObject
+            if (useMultiVolumeSystem)
+            {
+                FireWeaponMultiVolume();
+                return;
+            }
+            
+            // Legacy single-volume system
+            FireWeaponLegacy();
+        }
+        
+        private void FireWeaponMultiVolume()
+        {
+            // Find all VoxelObjects in scene
+            var voxelObjects = FindObjectsByType<Voxels.VoxelObject>(FindObjectsSortMode.None);
+            
+            if (voxelObjects.Length == 0)
+            {
+                Debug.LogWarning("[VoxelWeaponController] No VoxelObjects found in scene!");
+                return;
+            }
+            
+            Ray ray = _camera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            float3 rayOrigin = (float3)ray.origin;
+            float3 rayDir = math.normalize((float3)ray.direction);
+            
+            // Find closest hit across all volumes
+            float closestHit = float.MaxValue;
+            Voxels.VoxelObject hitVolume = null;
+            int3 hitVoxel = int3.zero;
+            ushort hitMaterial = 0;
+            
+            foreach (var vol in voxelObjects)
+            {
+                if (vol.GetVoxelBuffer() == null)
+                    continue;
+                
+                // Test ray against this volume
+                Vector3 volumeOffset = vol.GetVolumeOffset();
+                Unity.Mathematics.int3 dims = vol.GetVolumeDims();
+                float voxSize = vol.GetVoxelSize();
+                
+                // Convert ray to volume-local space
+                float3 localRayOrigin = rayOrigin - (float3)volumeOffset;
+                
+                // AABB test
+                float3 volumeMin = float3.zero;
+                float3 volumeMax = new float3(dims.x, dims.y, dims.z) * voxSize;
+                
+                if (!RayAABBIntersect(localRayOrigin, rayDir, volumeMin, volumeMax, out float tEnter, out float tExit))
+                    continue;
+                
+                if (tEnter > closestHit)
+                    continue;  // This volume is farther than current closest
+                
+                // DDA raymarch to find hit voxel
+                if (RaymarchVolume(vol, localRayOrigin, rayDir, tEnter, out int3 voxel, out ushort mat, out float hitDist))
+                {
+                    if (hitDist < closestHit)
+                    {
+                        closestHit = hitDist;
+                        hitVolume = vol;
+                        hitVoxel = voxel;
+                        hitMaterial = mat;
+                    }
+                }
+            }
+            
+            // Apply damage to closest hit
+            if (hitVolume != null)
+            {
+                Debug.Log($"[VoxelWeaponController] ✓ HIT {hitVolume.gameObject.name} at voxel {hitVoxel} | Material: {hitMaterial} | Distance: {closestHit:F2}m");
+                ApplyDamageToVolume(hitVolume, hitVoxel, hitMaterial);
+            }
+            else
+            {
+                Debug.LogWarning($"[VoxelWeaponController] ❌ MISS — No voxel hit | Checked {voxelObjects.Length} volumes");
+            }
+        }
+        
+        private void FireWeaponLegacy()
+        {
+            // Original single-volume code
             Ray ray = _camera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
             
             // Convert to voxel space
@@ -293,6 +379,136 @@ namespace SteelTide.Combat
             UpdateGPUTexture();
             
             Debug.Log($"[VoxelWeaponController] Destroyed voxel at index {index}");
+        }
+        
+        // ===== MULTI-VOLUME HELPER METHODS =====
+        
+        private bool RayAABBIntersect(float3 rayOrigin, float3 rayDir, float3 boxMin, float3 boxMax, out float tNear, out float tFar)
+        {
+            float3 invDir = 1.0f / rayDir;
+            float3 t0 = (boxMin - rayOrigin) * invDir;
+            float3 t1 = (boxMax - rayOrigin) * invDir;
+            
+            float3 tmin = math.min(t0, t1);
+            float3 tmax = math.max(t0, t1);
+            
+            tNear = math.max(math.max(tmin.x, tmin.y), tmin.z);
+            tFar = math.min(math.min(tmax.x, tmax.y), tmax.z);
+            
+            return tNear <= tFar && tFar >= 0.0f;
+        }
+        
+        private bool RaymarchVolume(Voxels.VoxelObject vol, float3 rayOrigin, float3 rayDir, float tEnter, out int3 hitVoxel, out ushort hitMaterial, out float hitDistance)
+        {
+            hitVoxel = int3.zero;
+            hitMaterial = 0;
+            hitDistance = float.MaxValue;
+            
+            Unity.Mathematics.int3 dims = vol.GetVolumeDims();
+            float voxSize = vol.GetVoxelSize();
+            ushort[] data = vol.GetVoxelData();
+            
+            if (data == null) return false;
+            
+            // Start DDA from volume entry point
+            float tStart = math.max(0, tEnter) + 0.001f;
+            float3 startPoint = rayOrigin + rayDir * tStart;
+            
+            // DDA setup
+            float3 p = startPoint / voxSize;
+            int3 voxel = (int3)math.floor(p);
+            int3 step = (int3)math.sign(rayDir);
+            
+            float3 inv = math.select(1f / math.abs(rayDir), float.PositiveInfinity, math.abs(rayDir) < 1e-6f);
+            float3 tDelta = inv;
+            float3 nextB = (math.floor(p) + math.max(step, 0));
+            float3 tMax = (nextB - p) * inv;
+            tMax = math.select(tMax, float.PositiveInfinity, math.abs(rayDir) < 1e-6f);
+            
+            int maxSteps = 256;
+            for (int i = 0; i < maxSteps; i++)
+            {
+                // Check bounds
+                if (voxel.x < 0 || voxel.x >= dims.x ||
+                    voxel.y < 0 || voxel.y >= dims.y ||
+                    voxel.z < 0 || voxel.z >= dims.z)
+                    break;
+                
+                // Check voxel
+                int idx = voxel.x + voxel.y * dims.x + voxel.z * dims.x * dims.y;
+                ushort packed = data[idx];
+                ushort mat = (ushort)(packed & Voxels.VoxelBits.MaterialMask);
+                
+                if (mat != Voxels.MaterialId.Air)
+                {
+                    hitVoxel = voxel;
+                    hitMaterial = mat;
+                    hitDistance = tStart + (i * voxSize);  // Approximate distance
+                    return true;
+                }
+                
+                // Advance DDA
+                if (tMax.x < tMax.y)
+                {
+                    if (tMax.x < tMax.z) { voxel.x += step.x; tMax.x += tDelta.x; }
+                    else                 { voxel.z += step.z; tMax.z += tDelta.z; }
+                }
+                else
+                {
+                    if (tMax.y < tMax.z) { voxel.y += step.y; tMax.y += tDelta.y; }
+                    else                 { voxel.z += step.z; tMax.z += tDelta.z; }
+                }
+            }
+            
+            return false;
+        }
+        
+        private void ApplyDamageToVolume(Voxels.VoxelObject vol, int3 centerVoxel, ushort currentMaterial)
+        {
+            // Apply damage in radius around hit point
+            for (int z = -damageRadius; z <= damageRadius; z++)
+            {
+                for (int y = -damageRadius; y <= damageRadius; y++)
+                {
+                    for (int x = -damageRadius; x <= damageRadius; x++)
+                    {
+                        int3 voxel = centerVoxel + new int3(x, y, z);
+                        ushort mat = vol.GetVoxel(voxel.x, voxel.y, voxel.z);
+                        
+                        if (mat == Voxels.MaterialId.Air)
+                            continue;
+                        
+                        ushort newMat = mat;
+                        
+                        // TWO-STAGE DAMAGE SYSTEM
+                        if (mat == Voxels.MaterialId.Concrete)
+                        {
+                            newMat = Voxels.MaterialId.DamagedConcrete;
+                        }
+                        else if (mat == Voxels.MaterialId.DamagedConcrete)
+                        {
+                            newMat = Voxels.MaterialId.Air;
+                        }
+                        else if (mat == Voxels.MaterialId.Steel)
+                        {
+                            newMat = Voxels.MaterialId.DamagedSteel;
+                        }
+                        else if (mat == Voxels.MaterialId.DamagedSteel)
+                        {
+                            newMat = Voxels.MaterialId.Air;
+                        }
+                        else
+                        {
+                            // Unknown material - destroy in one hit
+                            newMat = Voxels.MaterialId.Air;
+                        }
+                        
+                        vol.SetVoxel(voxel, newMat);
+                    }
+                }
+            }
+            
+            Debug.Log($"[VoxelWeaponController] Applied damage to {vol.gameObject.name} at {centerVoxel}");
         }
     }
 }

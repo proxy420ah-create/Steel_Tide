@@ -57,6 +57,14 @@ class ControlsPanel(QWidget):
         keyboard_group = QGroupBox("⌨️ Keyboard")
         keyboard_layout = QVBoxLayout()
         
+        wasd_label = QLabel("<b>WASD:</b> Pan Camera")
+        wasd_label.setStyleSheet("padding: 3px;")
+        keyboard_layout.addWidget(wasd_label)
+        
+        qe_label = QLabel("<b>Q/E:</b> Pan Up/Down")
+        qe_label.setStyleSheet("padding: 3px;")
+        keyboard_layout.addWidget(qe_label)
+        
         home_label = QLabel("<b>Home:</b> Reset Camera")
         home_label.setStyleSheet("padding: 3px;")
         keyboard_layout.addWidget(home_label)

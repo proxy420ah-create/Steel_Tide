@@ -119,14 +119,16 @@ VoxelAssetStudio/
 
 ---
 
-## 📋 Phase 1 Features (Current)
+## 📋 Phase 1 Features (Complete!)
 
 - ✅ Load/save .stasset files
 - ✅ 3D viewport with orbit camera
 - ✅ Render voxels as scatter plot
-- ✅ Paint tool (change material)
-- ✅ Erase tool (set to Air)
+- ✅ **Voxel clicking with raycasting** ⭐ NEW!
+- ✅ **Paint tool (click to change material)** ⭐ NEW!
+- ✅ **Erase tool (click to set to Air)** ⭐ NEW!
 - ✅ Material selector
+- ✅ Configurable mouse controls
 - ✅ Status bar (grid size, voxel count, FPS)
 - ✅ Dark theme (like Kalshi Dashboard!)
 
@@ -149,7 +151,7 @@ VoxelAssetStudio/
 
 ## 🐛 Known Issues
 
-- **Voxel clicking not yet implemented** - Need raycasting from mouse to 3D space
+- **Raycasting accuracy** - Simplified ray calculation, may need improvement for precision
 - **Re-renders entire grid on paint** - Optimize to update only changed voxels
 - **No undo/redo** - Coming in Phase 2
 

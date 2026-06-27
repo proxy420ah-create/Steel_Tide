@@ -12,6 +12,7 @@
 
 using UnityEngine;
 using UnityEngine.Rendering;
+using System.Collections.Generic;
 
 namespace SteelTide.Voxels
 {
@@ -20,13 +21,19 @@ namespace SteelTide.Voxels
     {
         [Header("Compute Shader")]
         public ComputeShader raymarchShader;
+        
+        [Header("Legacy Single Volume (Bootstrap)")]
         public ComputeBuffer voxelBuffer;  // set by PrototypeBootstrap at runtime
         public Unity.Mathematics.int3 volumeDims;  // voxel grid dimensions
+        public Vector3 volumeOffset = Vector3.zero;  // world-space origin of the voxel grid
 
         [Header("Render Settings")]
         public int maxSteps = 256;
         public float voxelSize = 0.5f;
-        public Vector3 volumeOffset = Vector3.zero;  // world-space origin of the voxel grid
+        
+        [Header("Multi-Volume System")]
+        public bool useMultiVolumeRendering = true;  // Enable new system
+        private List<VoxelObject> _registeredVolumes = new List<VoxelObject>();
         
         [Header("Editor Gizmo (for Scene view preview)")]
         public bool showVolumeGizmo = true;
@@ -162,6 +169,20 @@ namespace SteelTide.Voxels
 
         private void DispatchRaymarch()
         {
+            // Multi-volume rendering: render each registered volume
+            if (useMultiVolumeRendering && _registeredVolumes.Count > 0)
+            {
+                DispatchMultiVolume();
+                return;
+            }
+            
+            // Legacy single-volume rendering (Bootstrap compatibility)
+            if (voxelBuffer == null)
+            {
+                Debug.LogWarning("[VoxelRenderer] No voxel buffer assigned!");
+                return;
+            }
+            
             raymarchShader.SetBuffer(_kernelIndex, "_VoxelData", voxelBuffer);
             raymarchShader.SetTexture(_kernelIndex, "_Output", _output);
             raymarchShader.SetBuffer(_kernelIndex, "_MaterialColors", _colorBuffer);
@@ -203,6 +224,57 @@ namespace SteelTide.Voxels
             int threadGroupsY = Mathf.CeilToInt(_output.height / 8f);
             raymarchShader.Dispatch(_kernelIndex, threadGroupsX, threadGroupsY, 1);
         }
+        
+        private void DispatchMultiVolume()
+        {
+            // Clear output to background color first
+            Graphics.SetRenderTarget(_output);
+            GL.Clear(true, true, _camera.backgroundColor);
+            Graphics.SetRenderTarget(null);
+            
+            // Set shared parameters once
+            raymarchShader.SetTexture(_kernelIndex, "_Output", _output);
+            raymarchShader.SetBuffer(_kernelIndex, "_MaterialColors", _colorBuffer);
+            raymarchShader.SetMatrix("_CameraToWorld", _camera.cameraToWorldMatrix);
+            raymarchShader.SetMatrix("_InvProjection", _camera.projectionMatrix.inverse);
+            raymarchShader.SetVector("_ScreenSize", new Vector2(_output.width, _output.height));
+            raymarchShader.SetInt("_MaxSteps", maxSteps);
+            raymarchShader.SetVector("_BackgroundColor", _camera.backgroundColor);
+            
+            int threadGroupsX = Mathf.CeilToInt(_output.width / 8f);
+            int threadGroupsY = Mathf.CeilToInt(_output.height / 8f);
+            
+            // Render each volume in sequence
+            // First volume clears to background, subsequent volumes composite on top
+            for (int i = 0; i < _registeredVolumes.Count; i++)
+            {
+                VoxelObject vol = _registeredVolumes[i];
+                if (vol == null || vol.GetVoxelBuffer() == null)
+                    continue;
+                
+                // Set per-volume parameters
+                raymarchShader.SetBuffer(_kernelIndex, "_VoxelData", vol.GetVoxelBuffer());
+                Unity.Mathematics.int3 dims = vol.GetVolumeDims();
+                raymarchShader.SetInts("_VolumeDims", dims.x, dims.y, dims.z);
+                raymarchShader.SetFloat("_VoxelSize", vol.GetVoxelSize());
+                
+                // Camera origin relative to THIS volume's offset
+                Vector3 volumeOffset = vol.GetVolumeOffset();
+                Vector3 camOrigin = _camera.transform.position - volumeOffset;
+                raymarchShader.SetVector("_CameraOrigin", camOrigin);
+                
+                // Dispatch
+                raymarchShader.Dispatch(_kernelIndex, threadGroupsX, threadGroupsY, 1);
+                
+                // Log first frame
+                if (!_hasLoggedParams)
+                {
+                    Debug.Log($"[VoxelRenderer] Multi-volume render #{i}: {vol.gameObject.name} at {volumeOffset}");
+                }
+            }
+            
+            _hasLoggedParams = true;
+        }
 
         // Draw volume bounds in Scene view for easier editing
         void OnDrawGizmos()
@@ -227,6 +299,40 @@ namespace SteelTide.Voxels
                 Gizmos.DrawWireSphere(volumeOffset, markerSize);
                 Gizmos.DrawWireSphere(volumeOffset + size, markerSize);
             }
+        }
+        
+        // ===== MULTI-VOLUME SYSTEM =====
+        
+        /// <summary>
+        /// Register a VoxelObject to be rendered by this renderer.
+        /// Called automatically by VoxelObject.Start()
+        /// </summary>
+        public void RegisterVolume(VoxelObject voxelObject)
+        {
+            if (!_registeredVolumes.Contains(voxelObject))
+            {
+                _registeredVolumes.Add(voxelObject);
+                Debug.Log($"[VoxelRenderer] Registered volume: {voxelObject.gameObject.name} (Total: {_registeredVolumes.Count})");
+            }
+        }
+        
+        /// <summary>
+        /// Unregister a VoxelObject (called when destroyed)
+        /// </summary>
+        public void UnregisterVolume(VoxelObject voxelObject)
+        {
+            if (_registeredVolumes.Remove(voxelObject))
+            {
+                Debug.Log($"[VoxelRenderer] Unregistered volume: {voxelObject.gameObject.name} (Remaining: {_registeredVolumes.Count})");
+            }
+        }
+        
+        /// <summary>
+        /// Get all registered voxel volumes
+        /// </summary>
+        public List<VoxelObject> GetRegisteredVolumes()
+        {
+            return _registeredVolumes;
         }
     }
 }

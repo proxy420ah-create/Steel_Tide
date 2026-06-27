@@ -8,11 +8,17 @@ from PyQt6.QtGui import QAction
 import numpy as np
 import os
 
+# For now, use pyqtgraph - it's simpler and actually works
 from viewport_widget import VoxelViewport
+print("✅ Using pyqtgraph viewport (fast and reliable)")
+    
 from tool_panel import ToolPanel
-from controls_panel import ControlsPanel
-from mouse_config_dialog import MouseConfigDialog
+from brush_panel import BrushPanel
+from settings_dialog import SettingsDialog
 from stasset_io import load_stasset, save_stasset
+from shape_generator import (generate_cube, generate_sphere, generate_hollow_shell, generate_test_cube,
+                             generate_armored_cube, generate_armored_sphere, generate_armored_cylinder,
+                             generate_truly_hollow_sphere, generate_truly_hollow_cube)
 
 class VoxelEditor(QMainWindow):
     """Main application window for Voxel Asset Studio"""
@@ -28,6 +34,12 @@ class VoxelEditor(QMainWindow):
         self.grid_size = (32, 32, 32)
         self.current_file = None
         self.modified = False
+        
+        # Settings
+        self.settings = {
+            'highlight_hover': True,
+            'brush_size': 1
+        }
         
         # Build UI
         self.init_ui()
@@ -54,9 +66,10 @@ class VoxelEditor(QMainWindow):
         self.tool_panel.tool_changed.connect(self.on_tool_changed)
         left_layout.addWidget(self.tool_panel)
         
-        # Controls panel
-        self.controls_panel = ControlsPanel()
-        left_layout.addWidget(self.controls_panel)
+        # Brush panel
+        self.brush_panel = BrushPanel()
+        self.brush_panel.brush_size_changed.connect(self.on_brush_size_changed)
+        left_layout.addWidget(self.brush_panel)
         
         left_sidebar.setLayout(left_layout)
         main_layout.addWidget(left_sidebar)
@@ -109,12 +122,53 @@ class VoxelEditor(QMainWindow):
         reset_camera_action.triggered.connect(self.reset_camera)
         view_menu.addAction(reset_camera_action)
         
+        # Generate menu
+        generate_menu = menubar.addMenu("Generate")
+        
+        test_cube_action = QAction("Test Cube (8×8×8)", self)
+        test_cube_action.triggered.connect(self.generate_test_cube)
+        generate_menu.addAction(test_cube_action)
+        
+        cube_action = QAction("Cube (32×32×32)", self)
+        cube_action.triggered.connect(self.generate_full_cube)
+        generate_menu.addAction(cube_action)
+        
+        sphere_action = QAction("Sphere (radius 15)", self)
+        sphere_action.triggered.connect(self.generate_sphere)
+        generate_menu.addAction(sphere_action)
+        
+        generate_menu.addSeparator()
+        
+        # Armored shapes (Steel shell + Concrete core - DENSE)
+        armored_cube_action = QAction("🛡️ Armored Cube (Steel + Concrete)", self)
+        armored_cube_action.triggered.connect(self.generate_armored_cube)
+        generate_menu.addAction(armored_cube_action)
+        
+        armored_sphere_action = QAction("🛡️ Armored Sphere (Steel + Concrete)", self)
+        armored_sphere_action.triggered.connect(self.generate_armored_sphere)
+        generate_menu.addAction(armored_sphere_action)
+        
+        armored_cylinder_action = QAction("🛡️ Armored Cylinder (Steel + Concrete)", self)
+        armored_cylinder_action.triggered.connect(self.generate_armored_cylinder)
+        generate_menu.addAction(armored_cylinder_action)
+        
+        generate_menu.addSeparator()
+        
+        # Truly hollow shapes (Empty interior - LIGHTWEIGHT)
+        hollow_sphere_action = QAction("⭕ Truly Hollow Sphere (Empty Interior)", self)
+        hollow_sphere_action.triggered.connect(self.generate_truly_hollow_sphere)
+        generate_menu.addAction(hollow_sphere_action)
+        
+        hollow_cube_action = QAction("⭕ Truly Hollow Cube (Empty Interior)", self)
+        hollow_cube_action.triggered.connect(self.generate_truly_hollow_cube)
+        generate_menu.addAction(hollow_cube_action)
+        
         # Options menu
         options_menu = menubar.addMenu("Options")
         
-        mouse_controls_action = QAction("Mouse Controls...", self)
-        mouse_controls_action.triggered.connect(self.open_mouse_config)
-        options_menu.addAction(mouse_controls_action)
+        settings_action = QAction("Settings...", self)
+        settings_action.triggered.connect(self.open_settings)
+        options_menu.addAction(settings_action)
         
     def load_asset(self, filepath):
         """Load .stasset file"""
@@ -202,16 +256,107 @@ class VoxelEditor(QMainWindow):
         """Reset camera to default position"""
         self.viewport.setCameraPosition(distance=60, elevation=30, azimuth=45)
         
-    def open_mouse_config(self):
-        """Open mouse controls configuration dialog"""
-        dialog = MouseConfigDialog(self.viewport.mouse_config, self)
-        dialog.config_changed.connect(self.on_mouse_config_changed)
-        dialog.exec()
+    def open_settings(self):
+        """Open settings dialog"""
+        dialog = SettingsDialog(self, self.settings)
+        if dialog.exec():
+            new_settings = dialog.get_settings()
+            self.settings.update(new_settings)
+            self.apply_settings()
+            self.statusBar().showMessage("✅ Settings updated")
+    
+    def apply_settings(self):
+        """Apply current settings to viewport"""
+        # Apply highlight hover setting
+        if hasattr(self.viewport, 'set_highlight_hover'):
+            self.viewport.set_highlight_hover(self.settings['highlight_hover'])
+    
+    def on_brush_size_changed(self, size):
+        """Handle brush size change"""
+        self.settings['brush_size'] = size
+        self.viewport.set_brush_size(size)
+        self.statusBar().showMessage(f"✅ Brush size: {size} voxel{'s' if size > 1 else ''}")
         
-    def on_mouse_config_changed(self, new_config):
-        """Apply new mouse configuration"""
-        self.viewport.set_mouse_config(new_config)
-        self.statusBar().showMessage(f"✅ Mouse controls updated")
+    def generate_test_cube(self):
+        """Generate a simple 8×8×8 test cube"""
+        self.voxels = generate_test_cube()
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated 8×8×8 test cube")
+        
+    def generate_full_cube(self):
+        """Generate a full 32×32×32 cube"""
+        self.voxels = generate_cube((32, 32, 32), material_id=3)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated 32×32×32 cube")
+        
+    def generate_sphere(self):
+        """Generate a sphere"""
+        self.voxels = generate_sphere((32, 32, 32), radius=15, center=(16, 16, 16), material_id=3)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated sphere")
+        
+    def generate_shell(self):
+        """Generate a hollow shell (DEPRECATED - actually two-layer, not hollow)"""
+        self.voxels = generate_hollow_shell((32, 32, 32), outer_radius=15, inner_radius=12, center=(16, 16, 16), outer_material=5, inner_material=3)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("⚠️ Generated two-layer shell (NOT hollow - has concrete core)")
+    
+    def generate_armored_cube(self):
+        """Generate armored cube (Steel shell + Concrete core)"""
+        self.voxels = generate_armored_cube(size=(32, 32, 32), shell_thickness=2)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated armored cube (Steel + Concrete)")
+    
+    def generate_armored_sphere(self):
+        """Generate armored sphere (Steel shell + Concrete core)"""
+        self.voxels = generate_armored_sphere(grid_size=(32, 32, 32), radius=15, center=(16, 16, 16), shell_thickness=2)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated armored sphere (Steel + Concrete)")
+    
+    def generate_armored_cylinder(self):
+        """Generate armored cylinder (Steel shell + Concrete core)"""
+        self.voxels = generate_armored_cylinder(grid_size=(32, 32, 32), radius=12, height=28, center=(16, 16, 2), shell_thickness=2)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated armored cylinder (Steel + Concrete)")
+    
+    def generate_truly_hollow_sphere(self):
+        """Generate truly hollow sphere (empty interior)"""
+        self.voxels = generate_truly_hollow_sphere(grid_size=(32, 32, 32), outer_radius=15, shell_thickness=2, center=(16, 16, 16), material=5)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated truly hollow sphere (empty interior)")
+    
+    def generate_truly_hollow_cube(self):
+        """Generate truly hollow cube (empty interior)"""
+        self.voxels = generate_truly_hollow_cube(size=(32, 32, 32), shell_thickness=2, material=5)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated truly hollow cube (empty interior)")
         
     def update_status(self):
         """Update status bar with live info"""

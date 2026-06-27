@@ -103,7 +103,9 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
     float3 ro = _CameraOrigin;
     float3 rd = RayDirFromUV(uv);
 
-    float4 color = _BackgroundColor; // default to background
+    // Read existing pixel (for multi-volume compositing)
+    float4 existingColor = _Output[id.xy];
+    float4 color = existingColor; // Start with existing color (preserves previous volumes)
     
     // Volume bounds in world space
     float3 volumeMin = float3(0, 0, 0);
