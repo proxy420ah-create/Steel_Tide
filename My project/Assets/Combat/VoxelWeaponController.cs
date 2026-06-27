@@ -98,16 +98,22 @@ namespace SteelTide.Combat
             float tEnter = math.max(math.max(tmin.x, tmin.y), tmin.z);
             float tExit = math.min(math.min(tmax.x, tmax.y), tmax.z);
             
+            // DEBUG: Log AABB intersection details
+            Debug.Log($"[{gameObject.name}/VoxelWeaponController] AABB Test | tEnter: {tEnter:F3} | tExit: {tExit:F3} | VolumeMin: {volumeMin} | VolumeMax: {volumeMax}");
+            
             // Check if ray intersects volume
             if (tExit < 0 || tEnter > tExit)
             {
-                Debug.Log($"[{gameObject.name}/VoxelWeaponController] MISS — Ray doesn't intersect volume | Ray Origin: {ray.origin:F2} | Direction: {ray.direction:F2}");
+                Debug.LogWarning($"[{gameObject.name}/VoxelWeaponController] ❌ MISS — Ray doesn't intersect volume | tExit: {tExit:F3} | tEnter: {tEnter:F3} | Ray Origin: {ray.origin:F2} | Direction: {ray.direction:F2}");
                 return;
             }
             
             // Start DDA from volume entry point (or ray origin if already inside)
-            float tStart = math.max(0, tEnter);
+            // Add small epsilon to ensure we're inside the volume, not on the boundary
+            float tStart = math.max(0, tEnter) + 0.001f;
             float3 startPoint = rayOrigin + rayDir * tStart;
+            
+            Debug.Log($"[{gameObject.name}/VoxelWeaponController] DDA Start | Entry Point: {startPoint:F2} | tStart: {tStart:F3} (epsilon applied)");
             
             // Simple DDA raycast to find first solid voxel
             float3 p = startPoint / voxelSize;
@@ -123,11 +129,16 @@ namespace SteelTide.Combat
 
             int maxSteps = 256;
             int loopGuard = 0;
+            int3 firstVoxel = voxel;
+            int airVoxelsChecked = 0;
 
             while (loopGuard++ < maxSteps)
             {
                 if (!InBounds(voxel))
+                {
+                    Debug.LogWarning($"[{gameObject.name}/VoxelWeaponController] ⚠️ Out of bounds at step {loopGuard} | Voxel: {voxel} | Checked {airVoxelsChecked} air voxels");
                     break;
+                }
 
                 int idx = Index(voxel);
                 ushort packed = voxelData[idx];
@@ -136,9 +147,12 @@ namespace SteelTide.Combat
                 if (mat != Voxels.MaterialId.Air)
                 {
                     // HIT! Apply two-stage damage
+                    Debug.Log($"[{gameObject.name}/VoxelWeaponController] ✓ HIT at step {loopGuard} | Voxel: {voxel} | Material: {mat} | Air voxels traversed: {airVoxelsChecked}");
                     ApplyDamage(voxel, mat);
                     return;
                 }
+                
+                airVoxelsChecked++;
 
                 // Advance DDA
                 if (tMax.x < tMax.y)
@@ -153,7 +167,7 @@ namespace SteelTide.Combat
                 }
             }
 
-            Debug.Log($"[{gameObject.name}/VoxelWeaponController] MISS — No solid voxel hit | Ray Origin: {ray.origin:F2} | Direction: {ray.direction:F2} | Steps: {loopGuard}");
+            Debug.LogWarning($"[{gameObject.name}/VoxelWeaponController] ❌ MISS — No solid voxel hit after {loopGuard} steps | First Voxel: {firstVoxel} | Last Voxel: {voxel} | Air checked: {airVoxelsChecked} | Ray Origin: {ray.origin:F2} | Direction: {ray.direction:F2}");
         }
 
         private void ApplyDamage(int3 centerVoxel, ushort currentMaterial)
