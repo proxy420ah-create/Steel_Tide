@@ -9,6 +9,8 @@
 
 using UnityEngine;
 using Unity.Mathematics;
+using SteelTide.Voxels;  // For VoxelVolumeProxy
+using UnityEngine.InputSystem;  // Unity 6 New Input System
 
 namespace SteelTide.Combat
 {
@@ -21,12 +23,6 @@ namespace SteelTide.Combat
         [Header("Shooting Settings")]
         public float fireRate = 0.2f; // Seconds between shots
         public float range = 100f;
-        public KeyCode fireKey = KeyCode.Mouse0;
-        
-        [Header("Crosshair")]
-        public bool showCrosshair = true;
-        public Color crosshairColor = Color.white;
-        public float crosshairSize = 20f;
         
         private float _nextFireTime = 0f;
         
@@ -36,7 +32,7 @@ namespace SteelTide.Combat
                 fpsCamera = Camera.main;
                 
             if (weaponController == null)
-                weaponController = FindObjectOfType<VoxelWeaponController>();
+                weaponController = FindFirstObjectByType<VoxelWeaponController>();
                 
             // Lock and hide cursor for FPS gameplay
             Cursor.lockState = CursorLockMode.Locked;
@@ -45,15 +41,15 @@ namespace SteelTide.Combat
         
         void Update()
         {
-            // Handle shooting input
-            if (Input.GetKey(fireKey) && Time.time >= _nextFireTime)
+            // Handle shooting input (New Input System)
+            if (Mouse.current.leftButton.isPressed && Time.time >= _nextFireTime)
             {
                 Fire();
                 _nextFireTime = Time.time + fireRate;
             }
             
             // ESC to unlock cursor
-            if (Input.GetKeyDown(KeyCode.Escape))
+            if (Keyboard.current.escapeKey.wasPressedThisFrame)
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
@@ -94,36 +90,6 @@ namespace SteelTide.Combat
                     Debug.Log($"[FPSVoxelShooter] Destroyed voxel at {voxelCoords}");
                 }
             }
-        }
-        
-        void OnGUI()
-        {
-            if (!showCrosshair) return;
-            
-            // Draw simple crosshair at screen center
-            float centerX = Screen.width / 2f;
-            float centerY = Screen.height / 2f;
-            
-            // Horizontal line
-            DrawLine(new Vector2(centerX - crosshairSize, centerY),
-                    new Vector2(centerX + crosshairSize, centerY),
-                    crosshairColor, 2f);
-            
-            // Vertical line
-            DrawLine(new Vector2(centerX, centerY - crosshairSize),
-                    new Vector2(centerX, centerY + crosshairSize),
-                    crosshairColor, 2f);
-        }
-        
-        void DrawLine(Vector2 start, Vector2 end, Color color, float width)
-        {
-            GUI.color = color;
-            Vector2 diff = end - start;
-            float angle = Mathf.Atan2(diff.y, diff.x) * Mathf.Rad2Deg;
-            
-            GUIUtility.RotateAroundPivot(angle, start);
-            GUI.DrawTexture(new Rect(start.x, start.y, diff.magnitude, width), Texture2D.whiteTexture);
-            GUIUtility.RotateAroundPivot(-angle, start);
         }
     }
 }

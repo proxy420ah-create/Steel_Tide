@@ -29,13 +29,26 @@ A first-person shooter where you can:
 3. Set Local Position: `(0, 0.6, 0)` (eye height)
 4. Set Local Rotation: `(0, 0, 0)`
 5. Tag it as **"MainCamera"**
+6. Add Component: **Voxel Renderer** (copy from old Main Camera - see Step 3)
+7. Add Component: **Create Crosshair UI** (for proper crosshair rendering)
 
-### **Step 3: Disable Old Camera**
+### **Step 3: Move VoxelRenderer to Player Camera**
+
+1. Select the old **"Main Camera"** in Hierarchy
+2. In Inspector, find **Voxel Renderer** component
+3. Right-click **Voxel Renderer** → **Copy Component**
+4. Select **"Player Camera"** in Hierarchy
+5. Right-click in Inspector → **Paste Component As New**
+6. Go back to old **"Main Camera"**
+7. Right-click **Voxel Renderer** → **Remove Component**
+
+### **Step 4: Disable Old Camera**
 
 1. Find the old **"Main Camera"** in Hierarchy
 2. **Uncheck** it to disable (or delete it)
+   - Keep it disabled - it still has VoxelWeaponController which the Voxel Proxy needs
 
-### **Step 4: Setup Voxel Proxy Collider**
+### **Step 5: Setup Voxel Proxy Collider**
 
 1. In Hierarchy, **Right-click** → **3D Object** → **Cube**
 2. Rename to **"Voxel Proxy"**
@@ -46,17 +59,16 @@ A first-person shooter where you can:
 7. In Inspector:
    - **Volume Dims**: `(8, 8, 8)`
    - **Voxel Size**: `112.4` (match VoxelRenderer settings)
-   - **Weapon Controller**: Drag the Main Camera's VoxelWeaponController here
+   - **Weapon Controller**: Drag the old (disabled) Main Camera's VoxelWeaponController here
 
-### **Step 5: Wire Up FPS Shooter**
+### **Step 6: Wire Up FPS Shooter**
 
 1. Select **"FPS Player"** in Hierarchy
 2. Find **FPS Voxel Shooter** component
 3. Set:
    - **FPS Camera**: Drag "Player Camera" here
-   - **Weapon Controller**: Drag Main Camera's VoxelWeaponController here
+   - **Weapon Controller**: Drag the old (disabled) Main Camera's VoxelWeaponController here
    - **Fire Rate**: `0.2` (5 shots per second)
-   - **Show Crosshair**: ✅ Checked
 
 ---
 

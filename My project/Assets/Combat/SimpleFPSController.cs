@@ -2,9 +2,10 @@
 // SimpleFPSController.cs
 //
 // Basic WASD + Mouse Look FPS controller
-// No external dependencies - just Unity built-ins
+// Uses Unity 6 New Input System
 
 using UnityEngine;
+using UnityEngine.InputSystem;  // Unity 6 New Input System
 
 namespace SteelTide.Combat
 {
@@ -34,6 +35,9 @@ namespace SteelTide.Combat
             
             if (playerCamera == null)
                 playerCamera = GetComponentInChildren<Camera>();
+            
+            if (playerCamera == null)
+                playerCamera = Camera.main;
                 
             // Lock cursor for FPS gameplay
             Cursor.lockState = CursorLockMode.Locked;
@@ -46,14 +50,14 @@ namespace SteelTide.Combat
             HandleMouseLook();
             
             // ESC to unlock cursor
-            if (Input.GetKeyDown(KeyCode.Escape))
+            if (Keyboard.current.escapeKey.wasPressedThisFrame)
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
             
             // Click to re-lock cursor
-            if (Input.GetMouseButtonDown(0) && Cursor.lockState == CursorLockMode.None)
+            if (Mouse.current.leftButton.wasPressedThisFrame && Cursor.lockState == CursorLockMode.None)
             {
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
@@ -62,12 +66,14 @@ namespace SteelTide.Combat
         
         void HandleMovement()
         {
-            // Get input
-            float moveX = Input.GetAxis("Horizontal"); // A/D
-            float moveZ = Input.GetAxis("Vertical");   // W/S
+            // Get input (New Input System)
+            Vector2 moveInput = new Vector2(
+                Keyboard.current.dKey.isPressed ? 1 : (Keyboard.current.aKey.isPressed ? -1 : 0),
+                Keyboard.current.wKey.isPressed ? 1 : (Keyboard.current.sKey.isPressed ? -1 : 0)
+            );
             
             // Check if running
-            bool isRunning = Input.GetKey(KeyCode.LeftShift);
+            bool isRunning = Keyboard.current.leftShiftKey.isPressed;
             float speed = isRunning ? runSpeed : walkSpeed;
             
             // Calculate movement direction (relative to where player is facing)
@@ -77,10 +83,10 @@ namespace SteelTide.Combat
             // Ground movement
             if (_controller.isGrounded)
             {
-                _moveDirection = (forward * moveZ + right * moveX) * speed;
+                _moveDirection = (forward * moveInput.y + right * moveInput.x) * speed;
                 
                 // Jump
-                if (Input.GetButtonDown("Jump"))
+                if (Keyboard.current.spaceKey.wasPressedThisFrame)
                 {
                     _moveDirection.y = jumpForce;
                 }
@@ -95,9 +101,10 @@ namespace SteelTide.Combat
         
         void HandleMouseLook()
         {
-            // Get mouse input
-            float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
-            float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+            // Get mouse input (New Input System)
+            Vector2 mouseDelta = Mouse.current.delta.ReadValue();
+            float mouseX = mouseDelta.x * mouseSensitivity;
+            float mouseY = mouseDelta.y * mouseSensitivity;
             
             // Rotate player body left/right
             transform.Rotate(0, mouseX, 0);

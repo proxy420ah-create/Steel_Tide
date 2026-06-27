@@ -238,6 +238,26 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
         }
     }
 
+    // Draw crosshair overlay (always on top)
+    float2 screenCenter = _ScreenSize * 0.5;
+    float2 pixelPos = float2(id.xy);
+    float2 diff = abs(pixelPos - screenCenter);
+    
+    // Crosshair parameters (in pixels)
+    float crosshairLength = _ScreenSize.x * 0.02;  // 2% of screen width
+    float crosshairThickness = 2.0;                 // 2 pixels thick
+    
+    // Horizontal line
+    bool isHorizontal = (diff.y < crosshairThickness) && (diff.x < crosshairLength);
+    // Vertical line
+    bool isVertical = (diff.x < crosshairThickness) && (diff.y < crosshairLength);
+    
+    if (isHorizontal || isVertical)
+    {
+        // Green crosshair with slight transparency
+        color = lerp(color, float4(0.0, 1.0, 0.0, 1.0), 0.8);
+    }
+    
     _Output[id.xy] = color;
 }
 

@@ -7,6 +7,7 @@
 
 using UnityEngine;
 using Unity.Mathematics;
+using SteelTide.Combat;  // For VoxelWeaponController
 
 namespace SteelTide.Voxels
 {
@@ -36,7 +37,7 @@ namespace SteelTide.Voxels
             _collider.isTrigger = false;
             
             if (weaponController == null)
-                weaponController = FindObjectOfType<VoxelWeaponController>();
+                weaponController = FindFirstObjectByType<VoxelWeaponController>();
                 
             Debug.Log($"[VoxelVolumeProxy] Initialized proxy collider: {volumeDims} voxels, size {size}");
         }
