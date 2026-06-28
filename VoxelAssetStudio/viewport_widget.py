@@ -6,8 +6,9 @@ from pyqtgraph.opengl.MeshData import MeshData
 from PyQt6.QtGui import QVector3D as Vec3
 from PyQt6.QtCore import pyqtSignal, QTimer, Qt
 from PyQt6.QtGui import QMouseEvent, QVector3D
+from PyQt6.QtWidgets import QLabel
 import numpy as np
-from material_library import get_material_color
+from material_library import get_material_color, get_material_name
 import pyqtgraph.opengl as gl
 
 class VoxelViewport(GLViewWidget):
@@ -79,6 +80,20 @@ class VoxelViewport(GLViewWidget):
         self.fps_timer = QTimer()
         self.fps_timer.timeout.connect(self._update_fps)
         self.fps_timer.start(1000)  # Update every second
+        
+        # Material label overlay (shows material name on hover)
+        self.material_label = QLabel(self)
+        self.material_label.setStyleSheet("""
+            QLabel {
+                background-color: rgba(0, 0, 0, 200);
+                color: white;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        self.material_label.hide()  # Hidden by default
 
     # ========== COORDINATE SYSTEM TRANSFORMS ==========
     # Voxel data uses Y as up/height axis: [X, Y, Z] where Y=up, Z=depth
@@ -529,6 +544,7 @@ class VoxelViewport(GLViewWidget):
             self.hover_highlight = None
         
         if self.hover_voxel is None:
+            self.material_label.hide()
             return
         
         # Get voxel grid coordinates (integers)
@@ -582,6 +598,23 @@ class VoxelViewport(GLViewWidget):
         
         self.addItem(self.hover_highlight)
         self.update()
+        
+        # Update material label
+        if self.voxels is not None and 0 <= voxel_x < self.grid_size[0] and 0 <= voxel_y < self.grid_size[1] and 0 <= voxel_z < self.grid_size[2]:
+            material_id = self.voxels[voxel_x, voxel_y, voxel_z]
+            material_name = get_material_name(material_id)
+            
+            # Format label text
+            label_text = f"Material {material_id}: {material_name}"
+            if material_id == 0:
+                label_text = "Air (Empty)"
+            
+            self.material_label.setText(label_text)
+            self.material_label.show()
+            
+            # Position label near cursor (offset slightly)
+            cursor_pos = self.mapFromGlobal(self.cursor().pos())
+            self.material_label.move(cursor_pos.x() + 15, cursor_pos.y() + 15)
     
     def _clear_hover_highlight(self):
         """Clear hover highlight"""
@@ -589,6 +622,7 @@ class VoxelViewport(GLViewWidget):
             self.removeItem(self.hover_highlight)
             self.hover_highlight = None
             self.hover_voxel = None
+            self.material_label.hide()
             self.update()
     
     def keyPressEvent(self, ev):

@@ -148,20 +148,16 @@ namespace SteelTide.Prototype
             Debug.Log($"[SteelTide] Sample values: [0]={voxelData[0]}, [256]={voxelData[256]}, [511]={voxelData[511]}");
             Debug.Log($"[SteelTide] GeneratedVoxelBuffer property returns: {(GeneratedVoxelBuffer != null ? "VALID" : "NULL")}");
 
-            // Wire the buffer to the renderer (if assigned).
-            if (voxelRenderer != null)
-            {
-                Debug.Log($"[SteelTide] VoxelRenderer found, assigning buffer directly...");
-                voxelRenderer.voxelBuffer = _voxelBuffer;
-                voxelRenderer.volumeDims = volumeDims;
-                voxelRenderer.voxelSize = voxelSize;
-                Debug.Log($"[SteelTide] Uploaded {totalVoxels * sizeof(uint)} bytes to GPU ComputeBuffer.");
-                Debug.Log($"[SteelTide] Verification: voxelRenderer.voxelBuffer is now {(voxelRenderer.voxelBuffer != null ? "ASSIGNED" : "NULL")}");
-            }
-            else
-            {
-                Debug.LogWarning("[SteelTide] VoxelRenderer not assigned — cube won't render!");
-            }
+            // LEGACY: VoxelRenderer no longer uses these properties (multi-volume system now)
+            // if (voxelRenderer != null)
+            // {
+            //     Debug.Log($"[SteelTide] VoxelRenderer found, assigning buffer directly...");
+            //     voxelRenderer.voxelBuffer = _voxelBuffer;
+            //     voxelRenderer.volumeDims = volumeDims;
+            //     voxelRenderer.voxelSize = voxelSize;
+            //     Debug.Log($"[SteelTide] Uploaded {totalVoxels * sizeof(uint)} bytes to GPU ComputeBuffer.");
+            // }
+            Debug.LogWarning("[PrototypeBootstrap] Legacy rendering disabled - use VoxelObject components instead!");
 
             // Wire the weapon controller for interactive destruction (if assigned).
             if (weaponController != null)

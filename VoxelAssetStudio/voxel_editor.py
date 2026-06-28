@@ -14,11 +14,13 @@ print("✅ Using pyqtgraph viewport (fast and reliable)")
     
 from tool_panel import ToolPanel
 from brush_panel import BrushPanel
+from character_generator_panel import CharacterGeneratorPanel
 from settings_dialog import SettingsDialog
 from stasset_io import load_stasset, save_stasset
 from shape_generator import (generate_cube, generate_sphere, generate_hollow_shell, generate_test_cube,
                              generate_armored_cube, generate_armored_sphere, generate_armored_cylinder,
-                             generate_truly_hollow_sphere, generate_truly_hollow_cube)
+                             generate_truly_hollow_sphere, generate_truly_hollow_cube,
+                             generate_material_sampler)
 from procedural_buildings import (generate_building_2story, generate_building_lshape,
                                   generate_building_simple_house, generate_ground_plane, create_lod_version)
 from procedural_characters import (generate_humanoid, generate_mech_walker,
@@ -80,6 +82,11 @@ class VoxelEditor(QMainWindow):
         self.brush_panel = BrushPanel()
         self.brush_panel.brush_size_changed.connect(self.on_brush_size_changed)
         left_layout.addWidget(self.brush_panel)
+        
+        # Character generator panel
+        self.character_panel = CharacterGeneratorPanel()
+        self.character_panel.generate_requested.connect(self.on_character_generate)
+        left_layout.addWidget(self.character_panel)
         
         left_sidebar.setLayout(left_layout)
         main_layout.addWidget(left_sidebar)
@@ -159,6 +166,13 @@ class VoxelEditor(QMainWindow):
         sphere_action = QAction("Sphere (radius 15)", self)
         sphere_action.triggered.connect(self.generate_sphere)
         generate_menu.addAction(sphere_action)
+        
+        generate_menu.addSeparator()
+        
+        # Material sampler (for Unity color mapping)
+        material_sampler_action = QAction("🎨 Material Sampler (All Materials Grid)", self)
+        material_sampler_action.triggered.connect(self.generate_material_sampler)
+        generate_menu.addAction(material_sampler_action)
         
         generate_menu.addSeparator()
         
@@ -425,6 +439,15 @@ class VoxelEditor(QMainWindow):
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated truly hollow cube (empty interior)")
+    
+    def generate_material_sampler(self):
+        """Generate material sampler grid (all materials in clean pattern)"""
+        self.voxels = generate_material_sampler()
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage("✅ Generated material sampler grid (for Unity color mapping)")
     
     def generate_building_2story(self):
         """Generate 2-story building with auto-LOD"""
@@ -697,3 +720,64 @@ class VoxelEditor(QMainWindow):
         self.update_status()
         
         print(f"✅ Re-generated {self.last_generator_name} with new variation")
+    
+    def on_character_generate(self, params):
+        """Handle character generation from character panel"""
+        print(f"🤖 Generating character with seed: {params['seed']}")
+        
+        # Prepare locked_parts parameter for generator
+        locked_parts_param = None
+        if any(params.get('locked_parts', {}).values()):
+            locked_parts_param = {
+                'locks': params['locked_parts'],
+                'part_data': params.get('part_data', {})
+            }
+        
+        # Generate character with parameters
+        self.voxels = generate_humanoid(
+            height=params['height'],
+            body_material=params['body_material'],
+            head_material=params['head_material'],
+            limb_material=params['limb_material'],
+            armor_material=params['armor_material'],
+            seed=params['seed'],
+            locked_parts=locked_parts_param
+        )
+        
+        self.grid_size = self.voxels.shape
+        
+        # Extract part data for future locking
+        from procedural_characters import extract_character_parts
+        extracted_parts = extract_character_parts(self.voxels, params['height'])
+        
+        # Store part data back in character panel for next generation
+        for part_name, part_data in extracted_parts.items():
+            self.character_panel.part_data[part_name] = part_data
+        
+        # Update viewport
+        self.viewport.set_voxels(self.voxels)
+        
+        # Store generation state for Re-Generate button
+        self.last_generator = lambda seed: generate_humanoid(
+            height=params['height'],
+            body_material=params['body_material'],
+            head_material=params['head_material'],
+            limb_material=params['limb_material'],
+            armor_material=params['armor_material'],
+            seed=seed
+        )
+        self.last_generator_name = f"Humanoid (H={params['height']})"
+        self.last_seed = params['seed']
+        self.regenerate_action.setEnabled(True)
+        
+        # Mark as modified
+        self.modified = True
+        self.update_title()
+        self.update_status()
+        
+        locked_count = sum(1 for locked in params.get('locked_parts', {}).values() if locked)
+        if locked_count > 0:
+            locked_parts_list = [name for name, locked in params['locked_parts'].items() if locked]
+            print(f"✅ Generated character with locked: {', '.join(locked_parts_list)}")
+        else:
+            print(f"✅ Generated new character: {self.grid_size[0]}×{self.grid_size[1]}×{self.grid_size[2]} voxels")

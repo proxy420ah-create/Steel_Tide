@@ -1,0 +1,287 @@
+using UnityEngine;
+
+/// <summary>
+/// Custom voxel-based physics controller for player character.
+/// Uses raymarching for collision detection instead of Unity's built-in physics.
+/// </summary>
+[RequireComponent(typeof(CharacterController))]
+public class VoxelPhysics : MonoBehaviour
+{
+    [Header("Movement")]
+    [Tooltip("Movement speed in units/second")]
+    public float moveSpeed = 5f;
+    
+    [Tooltip("Jump velocity")]
+    public float jumpForce = 8f;
+    
+    [Tooltip("Sprint multiplier")]
+    public float sprintMultiplier = 1.5f;
+    
+    [Header("Physics")]
+    [Tooltip("Gravity acceleration")]
+    public float gravity = -20f;
+    
+    [Tooltip("Maximum fall speed")]
+    public float terminalVelocity = -50f;
+    
+    [Tooltip("Ground check distance (slightly larger than voxel size)")]
+    public float groundCheckDistance = 0.2f;
+    
+    [Tooltip("Player collision radius (in voxels)")]
+    public float collisionRadius = 0.5f;
+    
+    [Header("Camera")]
+    [Tooltip("Camera transform for look direction")]
+    public Transform cameraTransform;
+    
+    [Tooltip("Mouse sensitivity")]
+    public float mouseSensitivity = 2f;
+    
+    [Tooltip("Vertical look limits")]
+    public float maxLookAngle = 80f;
+    
+    [Header("Debug")]
+    public bool showDebugRays = false;
+    
+    // Internal state
+    private Vector3 velocity;
+    private bool isGrounded;
+    private float cameraPitch = 0f;
+    private CharacterController controller;
+    private VoxelWorld voxelWorld;
+    
+    // Input cache
+    private Vector2 moveInput;
+    private Vector2 lookInput;
+    private bool jumpInput;
+    private bool sprintInput;
+    
+    private void Start()
+    {
+        controller = GetComponent<CharacterController>();
+        voxelWorld = VoxelWorld.Instance;
+        
+        if (cameraTransform == null)
+        {
+            cameraTransform = Camera.main.transform;
+        }
+        
+        // Lock cursor for FPS controls
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+    
+    private void Update()
+    {
+        // Gather input
+        GatherInput();
+        
+        // Update camera rotation
+        UpdateCameraRotation();
+    }
+    
+    private void FixedUpdate()
+    {
+        // Physics runs at fixed timestep
+        CheckGrounded();
+        ApplyGravity();
+        ApplyMovement();
+    }
+    
+    #region Input
+    
+    private void GatherInput()
+    {
+        // Movement input (WASD)
+        moveInput = new Vector2(
+            Input.GetAxisRaw("Horizontal"),
+            Input.GetAxisRaw("Vertical")
+        );
+        
+        // Look input (Mouse)
+        lookInput = new Vector2(
+            Input.GetAxis("Mouse X"),
+            Input.GetAxis("Mouse Y")
+        );
+        
+        // Jump input (Space)
+        jumpInput = Input.GetButtonDown("Jump");
+        
+        // Sprint input (Shift)
+        sprintInput = Input.GetKey(KeyCode.LeftShift);
+        
+        // Unlock cursor (Escape)
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+        
+        // Re-lock cursor (Left Click)
+        if (Input.GetMouseButtonDown(0) && Cursor.lockState == CursorLockMode.None)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+    }
+    
+    #endregion
+    
+    #region Camera
+    
+    private void UpdateCameraRotation()
+    {
+        if (Cursor.lockState != CursorLockMode.Locked) return;
+        
+        // Horizontal rotation (Y-axis) - rotate player body
+        float yaw = lookInput.x * mouseSensitivity;
+        transform.Rotate(Vector3.up * yaw);
+        
+        // Vertical rotation (X-axis) - rotate camera only
+        cameraPitch -= lookInput.y * mouseSensitivity;
+        cameraPitch = Mathf.Clamp(cameraPitch, -maxLookAngle, maxLookAngle);
+        cameraTransform.localEulerAngles = new Vector3(cameraPitch, 0f, 0f);
+    }
+    
+    #endregion
+    
+    #region Physics
+    
+    private void CheckGrounded()
+    {
+        // Cast ray downward from player center
+        Vector3 rayOrigin = transform.position;
+        Vector3 rayDirection = Vector3.down;
+        
+        VoxelHit hit = voxelWorld.RaymarchChunk(rayOrigin, rayDirection, groundCheckDistance);
+        
+        isGrounded = hit.hit;
+        
+        if (showDebugRays)
+        {
+            Color rayColor = isGrounded ? Color.green : Color.red;
+            Debug.DrawRay(rayOrigin, rayDirection * groundCheckDistance, rayColor);
+        }
+        
+        // Reset vertical velocity if grounded
+        if (isGrounded && velocity.y < 0)
+        {
+            velocity.y = -2f; // Small downward force to keep grounded
+        }
+    }
+    
+    private void ApplyGravity()
+    {
+        if (!isGrounded)
+        {
+            velocity.y += gravity * Time.fixedDeltaTime;
+            velocity.y = Mathf.Max(velocity.y, terminalVelocity);
+        }
+        
+        // Handle jump
+        if (jumpInput && isGrounded)
+        {
+            velocity.y = jumpForce;
+        }
+    }
+    
+    private void ApplyMovement()
+    {
+        // Calculate movement direction relative to camera
+        Vector3 forward = transform.forward;
+        Vector3 right = transform.right;
+        
+        // Flatten to horizontal plane
+        forward.y = 0;
+        right.y = 0;
+        forward.Normalize();
+        right.Normalize();
+        
+        // Calculate desired movement
+        Vector3 moveDirection = (forward * moveInput.y + right * moveInput.x).normalized;
+        
+        // Apply speed
+        float currentSpeed = sprintInput ? moveSpeed * sprintMultiplier : moveSpeed;
+        Vector3 horizontalVelocity = moveDirection * currentSpeed;
+        
+        // Combine horizontal and vertical velocity
+        Vector3 finalVelocity = new Vector3(
+            horizontalVelocity.x,
+            velocity.y,
+            horizontalVelocity.z
+        );
+        
+        // Check for collisions before moving
+        Vector3 desiredMove = finalVelocity * Time.fixedDeltaTime;
+        
+        if (CheckCollision(desiredMove))
+        {
+            // Collision detected - try sliding along walls
+            desiredMove = HandleCollisionSliding(desiredMove);
+        }
+        
+        // Apply movement
+        controller.Move(desiredMove);
+    }
+    
+    private bool CheckCollision(Vector3 moveVector)
+    {
+        // Cast ray in movement direction
+        Vector3 rayOrigin = transform.position;
+        Vector3 rayDirection = moveVector.normalized;
+        float rayDistance = moveVector.magnitude + collisionRadius;
+        
+        VoxelHit hit = voxelWorld.RaymarchChunk(rayOrigin, rayDirection, rayDistance);
+        
+        if (showDebugRays && hit.hit)
+        {
+            Debug.DrawLine(rayOrigin, hit.worldPosition, Color.yellow);
+        }
+        
+        return hit.hit;
+    }
+    
+    private Vector3 HandleCollisionSliding(Vector3 moveVector)
+    {
+        // Simple wall sliding: project movement onto wall surface
+        Vector3 rayOrigin = transform.position;
+        Vector3 rayDirection = moveVector.normalized;
+        float rayDistance = moveVector.magnitude + collisionRadius;
+        
+        VoxelHit hit = voxelWorld.RaymarchChunk(rayOrigin, rayDirection, rayDistance);
+        
+        if (hit.hit)
+        {
+            // Project movement vector onto wall surface
+            Vector3 wallNormal = new Vector3(hit.normal.x, hit.normal.y, hit.normal.z).normalized;
+            Vector3 slideVector = Vector3.ProjectOnPlane(moveVector, wallNormal);
+            
+            // Check if slide movement also collides
+            if (!CheckCollision(slideVector))
+            {
+                return slideVector;
+            }
+        }
+        
+        // Can't move - return zero
+        return Vector3.zero;
+    }
+    
+    #endregion
+    
+    #region Debug
+    
+    private void OnGUI()
+    {
+        if (!showDebugRays) return;
+        
+        GUILayout.BeginArea(new Rect(10, 10, 300, 200));
+        GUILayout.Label($"Grounded: {isGrounded}");
+        GUILayout.Label($"Velocity: {velocity}");
+        GUILayout.Label($"Position: {transform.position}");
+        GUILayout.Label($"Speed: {controller.velocity.magnitude:F2} u/s");
+        GUILayout.EndArea();
+    }
+    
+    #endregion
+}

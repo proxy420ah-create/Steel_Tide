@@ -2,6 +2,7 @@
 # shape_generator.py - Procedural voxel shape generation
 
 import numpy as np
+from material_library import MATERIALS
 
 def generate_cube(size, material_id=3):
     """
@@ -300,5 +301,57 @@ def generate_armored_cylinder(grid_size=(32, 32, 32), radius=12, height=28, cent
     print(f"   Inner core: Material 3 (Concrete)")
     print(f"   Center: {center}")
     print(f"   Voxels filled: {voxel_count:,}")
+    
+    return voxels
+
+def generate_material_sampler():
+    """
+    Generate a clean grid pattern of all materials for color sampling.
+    Creates a 5x5 grid of 8x8x8 blocks, each with a different material.
+    
+    Returns:
+        numpy array of voxel data (40x40x40 grid)
+    """
+    # Get all material IDs (excluding Air/Reserved)
+    material_ids = [mid for mid in sorted(MATERIALS.keys()) if mid not in [0, 12]]
+    
+    # Grid layout: 5x5 blocks (max 25 materials)
+    block_size = 8  # Each material block is 8x8x8 voxels
+    grid_size = 5   # 5x5 grid
+    padding = 2     # 2 voxels between blocks
+    
+    # Calculate total grid size
+    total_size = grid_size * (block_size + padding) - padding
+    
+    voxels = np.zeros((total_size, total_size, total_size), dtype=np.uint16)
+    
+    # Place each material in a grid position
+    for i, material_id in enumerate(material_ids):
+        # Calculate grid position (row, column)
+        row = i // grid_size
+        col = i % grid_size
+        
+        # Calculate block start position
+        start_x = col * (block_size + padding)
+        start_y = row * (block_size + padding)
+        start_z = 0  # All blocks at bottom layer
+        
+        # Fill block with material
+        end_x = start_x + block_size
+        end_y = start_y + block_size
+        end_z = start_z + block_size
+        
+        voxels[start_x:end_x, start_y:end_y, start_z:end_z] = material_id
+        
+        material_name = MATERIALS[material_id]["name"]
+        print(f"   [{i+1:2d}] Material {material_id:2d}: {material_name:25s} at ({start_x:2d}, {start_y:2d}, {start_z:2d})")
+    
+    voxel_count = np.count_nonzero(voxels)
+    print(f"✅ Generated Material Sampler Grid")
+    print(f"   Grid size: {total_size}×{total_size}×{total_size} voxels")
+    print(f"   Block size: {block_size}×{block_size}×{block_size} voxels per material")
+    print(f"   Materials sampled: {len(material_ids)}")
+    print(f"   Total voxels: {voxel_count:,}")
+    print(f"   Use this to sample colors for Unity material map!")
     
     return voxels

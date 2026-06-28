@@ -22,42 +22,41 @@ namespace SteelTide.Voxels
         [Header("Compute Shader")]
         public ComputeShader raymarchShader;
         
-        [Header("Legacy Single Volume (Bootstrap)")]
-        public ComputeBuffer voxelBuffer;  // set by PrototypeBootstrap at runtime
-        public Unity.Mathematics.int3 volumeDims;  // voxel grid dimensions
-        public Vector3 volumeOffset = Vector3.zero;  // world-space origin of the voxel grid
-
         [Header("Render Settings")]
         public int maxSteps = 256;
-        public float voxelSize = 0.5f;
         
         [Header("Multi-Volume System")]
-        public bool useMultiVolumeRendering = true;  // Enable new system
         private List<VoxelObject> _registeredVolumes = new List<VoxelObject>();
         
-        [Header("Editor Gizmo (for Scene view preview)")]
-        public bool showVolumeGizmo = true;
-        public Unity.Mathematics.int3 editorVolumeDims = new Unity.Mathematics.int3(8, 8, 8);  // Preview size in editor
+        [Header("Debug")]
+        public bool showDebugInfo = true;
 
         [Header("Material Colors (index by material ID)")]
         public Color[] materialColors = new Color[]
         {
-            new Color(0.02f, 0.03f, 0.08f, 0f),   // 0: Air (transparent)
-            new Color(0f, 1f, 0.97f, 1f),         // 1: Energy_Shield (cyan)
-            new Color(0.5f, 0.5f, 0.5f, 1f),      // 2: Chobham_Armor (gray)
-            new Color(0.6f, 0.6f, 0.55f, 1f),     // 3: Concrete (tan/gray)
-            new Color(1f, 0.27f, 0.27f, 1f),      // 4: Flesh (red)
-            new Color(0.7f, 0.7f, 0.8f, 1f),      // 5: Steel (blue-gray)
-            new Color(0f, 0f, 0f, 0f),            // 6-12: Reserved
-            new Color(0f, 0f, 0f, 0f),
-            new Color(0f, 0f, 0f, 0f),
-            new Color(0f, 0f, 0f, 0f),
-            new Color(0f, 0f, 0f, 0f),
-            new Color(0f, 0f, 0f, 0f),
-            new Color(0f, 0f, 0f, 0f),
-            new Color(0.85f, 0.15f, 0.15f, 1f),   // 13: Damaged_Concrete (crimson red)
-            new Color(0.9f, 0.4f, 0.1f, 1f),      // 14: Damaged_Steel (hot orange)
-            new Color(0.8f, 0.2f, 0.2f, 1f),      // 15: Damaged_Armor (dark red)
+            // Primary Materials (0-5)
+            new Color(0.0f, 0.0f, 0.0f, 0f),      // 0: Air (transparent)
+            new Color(0f, 1f, 0.97f, 1f),         // 1: Energy Shield (cyan)
+            new Color(0.6f, 0.4f, 0.2f, 1f),      // 2: Chobham Armor (brown)
+            new Color(0.5f, 0.5f, 0.5f, 1f),      // 3: Concrete (gray)
+            new Color(1f, 0.6f, 0.6f, 1f),        // 4: Flesh (pink)
+            new Color(0.3f, 0.3f, 0.3f, 1f),      // 5: Steel (dark gray)
+            
+            // Terrain Materials (6-10)
+            new Color(0.4f, 0.3f, 0.2f, 1f),      // 6: Dirt (brown)
+            new Color(0.2f, 0.6f, 0.2f, 1f),      // 7: Grass (green)
+            new Color(0.4f, 0.4f, 0.4f, 1f),      // 8: Stone (gray)
+            new Color(0.6f, 0.4f, 0.2f, 1f),      // 9: Wood (tan)
+            new Color(0.78f, 0.9f, 1.0f, 0.5f),   // 10: Glass (light blue, semi-transparent)
+            
+            // Clothing/Organic (11-12)
+            new Color(0.2f, 0.3f, 0.2f, 1f),      // 11: Uniform (dark green)
+            new Color(0f, 0f, 0f, 0f),            // 12: Reserved
+            
+            // Damaged States (13-15)
+            new Color(0.85f, 0.15f, 0.15f, 1f),   // 13: Damaged Concrete (crimson)
+            new Color(0.9f, 0.4f, 0.1f, 1f),      // 14: Damaged Steel (orange)
+            new Color(0.8f, 0.2f, 0.2f, 1f),      // 15: Damaged Armor (dark red)
         };
 
         private RenderTexture _output;
@@ -79,29 +78,7 @@ namespace SteelTide.Voxels
             _kernelIndex = raymarchShader.FindKernel("CSRaymarch");
         }
         
-        void LateUpdate()
-        {
-            // Pull buffer reference from Bootstrap if not yet assigned
-            if (voxelBuffer == null)
-            {
-                Debug.Log("[VoxelRenderer] voxelBuffer is null, attempting to pull from Bootstrap...");
-                var bootstrap = FindFirstObjectByType<SteelTide.Prototype.PrototypeBootstrap>();
-                if (bootstrap == null)
-                {
-                    Debug.LogWarning("[VoxelRenderer] Could not find PrototypeBootstrap!");
-                    return;
-                }
-                
-                if (bootstrap.GeneratedVoxelBuffer == null)
-                {
-                    Debug.LogWarning("[VoxelRenderer] Bootstrap.GeneratedVoxelBuffer is null!");
-                    return;
-                }
-                
-                voxelBuffer = bootstrap.GeneratedVoxelBuffer;
-                Debug.Log($"[VoxelRenderer] Successfully pulled ComputeBuffer reference from Bootstrap");
-            }
-        }
+        // Bootstrap removed - VoxelObjects register themselves automatically
 
         void OnEnable()
         {
@@ -127,18 +104,6 @@ namespace SteelTide.Voxels
             // Only render for this camera
             if (camera != _camera)
                 return;
-                
-            if (voxelBuffer == null)
-            {
-                Debug.LogWarning("[VoxelRenderer] OnEndCameraRendering: voxelBuffer is NULL, skipping render!");
-                return;
-            }
-            
-            // Confirm buffer available (log once)
-            if (!_hasLoggedParams)
-            {
-                Debug.Log($"[VoxelRenderer] Rendering frame with buffer: {volumeDims.x}x{volumeDims.y}x{volumeDims.z} voxels");
-            }
 
             // Ensure buffers match current resolution
             if (_output == null || _output.width != camera.pixelWidth || _output.height != camera.pixelHeight)
@@ -169,64 +134,27 @@ namespace SteelTide.Voxels
 
         private void DispatchRaymarch()
         {
-            // Multi-volume rendering: render each registered volume
-            if (useMultiVolumeRendering && _registeredVolumes.Count > 0)
-            {
-                DispatchMultiVolume();
-                return;
-            }
-            
-            // Legacy single-volume rendering (Bootstrap compatibility)
-            if (voxelBuffer == null)
-            {
-                Debug.LogWarning("[VoxelRenderer] No voxel buffer assigned!");
-                return;
-            }
-            
-            raymarchShader.SetBuffer(_kernelIndex, "_VoxelData", voxelBuffer);
-            raymarchShader.SetTexture(_kernelIndex, "_Output", _output);
-            raymarchShader.SetBuffer(_kernelIndex, "_MaterialColors", _colorBuffer);
-
-            // Pass explicit integer dimensions to ensure GPU knows exact grid bounds
-            raymarchShader.SetInts("_VolumeDims", volumeDims.x, volumeDims.y, volumeDims.z);
-            raymarchShader.SetFloat("_VoxelSize", voxelSize);
-            
-            Vector3 camOrigin = _camera.transform.position - volumeOffset;
-            raymarchShader.SetVector("_CameraOrigin", camOrigin);
-            
-            // DIAGNOSTIC: Log shader parameters (once only)
-            if (!_hasLoggedParams)
-            {
-                Vector3 volumeMax = new Vector3(volumeDims.x, volumeDims.y, volumeDims.z) * voxelSize;
-                Debug.Log($"[VoxelRenderer] SHADER PARAMS:");
-                Debug.Log($"  VolumeDims: {volumeDims.x}x{volumeDims.y}x{volumeDims.z}");
-                Debug.Log($"  VoxelSize: {voxelSize}");
-                Debug.Log($"  VolumeWorldBounds: (0,0,0) to ({volumeMax.x},{volumeMax.y},{volumeMax.z})");
-                Debug.Log($"  CameraPos: {_camera.transform.position}");
-                Debug.Log($"  VolumeOffset: {volumeOffset}");
-                Debug.Log($"  CameraOrigin (shader): {camOrigin}");
-                Debug.Log($"  Material Colors Count: {materialColors.Length}");
-                Debug.Log($"  Expected cube center: ({volumeMax.x/2},{volumeMax.y/2},{volumeMax.z/2})");
-                _hasLoggedParams = true;
-            }
-            
-            // Pass separate camera matrices for robust ray reconstruction
-            raymarchShader.SetMatrix("_CameraToWorld", _camera.cameraToWorldMatrix);
-            raymarchShader.SetMatrix("_InvProjection", _camera.projectionMatrix.inverse);
-            
-            raymarchShader.SetVector("_ScreenSize", new Vector2(_output.width, _output.height));
-            raymarchShader.SetInt("_MaxSteps", maxSteps);
-            
-            // Pass camera background color as fallback for missed rays
-            raymarchShader.SetVector("_BackgroundColor", _camera.backgroundColor);
-
-            int threadGroupsX = Mathf.CeilToInt(_output.width / 8f);
-            int threadGroupsY = Mathf.CeilToInt(_output.height / 8f);
-            raymarchShader.Dispatch(_kernelIndex, threadGroupsX, threadGroupsY, 1);
+            // Always use multi-volume system (Bootstrap removed)
+            DispatchMultiVolume();
         }
         
         private void DispatchMultiVolume()
         {
+            // Log registered volumes count (first frame only)
+            if (!_hasLoggedParams)
+            {
+                Debug.Log($"[VoxelRenderer] Multi-volume dispatch: {_registeredVolumes.Count} volumes registered");
+            }
+            
+            if (_registeredVolumes.Count == 0)
+            {
+                // No volumes to render - just clear to background
+                Graphics.SetRenderTarget(_output);
+                GL.Clear(true, true, _camera.backgroundColor);
+                Graphics.SetRenderTarget(null);
+                return;
+            }
+            
             // Clear output to background color first
             Graphics.SetRenderTarget(_output);
             GL.Clear(true, true, _camera.backgroundColor);
@@ -243,6 +171,13 @@ namespace SteelTide.Voxels
             
             int threadGroupsX = Mathf.CeilToInt(_output.width / 8f);
             int threadGroupsY = Mathf.CeilToInt(_output.height / 8f);
+            
+            // Sort volumes back-to-front for proper depth ordering
+            _registeredVolumes.Sort((a, b) => {
+                float distA = Vector3.Distance(a.transform.position, _camera.transform.position);
+                float distB = Vector3.Distance(b.transform.position, _camera.transform.position);
+                return distB.CompareTo(distA); // Render farthest first
+            });
             
             // Render each volume in sequence
             // First volume clears to background, subsequent volumes composite on top
@@ -276,30 +211,7 @@ namespace SteelTide.Voxels
             _hasLoggedParams = true;
         }
 
-        // Draw volume bounds in Scene view for easier editing
-        void OnDrawGizmos()
-        {
-            if (!showVolumeGizmo) return;
-            
-            // Use runtime dims if available, otherwise use editor preview dims
-            Unity.Mathematics.int3 dims = (volumeDims.x > 0) ? volumeDims : editorVolumeDims;
-            
-            if (dims.x > 0 && dims.y > 0 && dims.z > 0)
-            {
-                Vector3 size = new Vector3(dims.x, dims.y, dims.z) * voxelSize;
-                Vector3 center = volumeOffset + size / 2;
-                
-                // Draw wireframe cube showing voxel volume bounds
-                Gizmos.color = new Color(0, 1, 1, 0.5f); // Cyan
-                Gizmos.DrawWireCube(center, size);
-                
-                // Draw corner markers
-                Gizmos.color = Color.cyan;
-                float markerSize = voxelSize * 0.5f;
-                Gizmos.DrawWireSphere(volumeOffset, markerSize);
-                Gizmos.DrawWireSphere(volumeOffset + size, markerSize);
-            }
-        }
+        // Gizmos now drawn by individual VoxelObjects
         
         // ===== MULTI-VOLUME SYSTEM =====
         
@@ -309,10 +221,20 @@ namespace SteelTide.Voxels
         /// </summary>
         public void RegisterVolume(VoxelObject voxelObject)
         {
+            if (voxelObject == null)
+            {
+                Debug.LogWarning("[VoxelRenderer] Attempted to register null VoxelObject!");
+                return;
+            }
+            
             if (!_registeredVolumes.Contains(voxelObject))
             {
                 _registeredVolumes.Add(voxelObject);
-                Debug.Log($"[VoxelRenderer] Registered volume: {voxelObject.gameObject.name} (Total: {_registeredVolumes.Count})");
+                Debug.Log($"[VoxelRenderer] ✅ Registered volume: {voxelObject.gameObject.name} (Total: {_registeredVolumes.Count})");
+            }
+            else
+            {
+                Debug.LogWarning($"[VoxelRenderer] Volume already registered: {voxelObject.gameObject.name}");
             }
         }
         

@@ -39,9 +39,10 @@ namespace SteelTide.Voxels
             (ushort)((shape << ShapeShift) | (rotation << RotationShift) | (material & MaterialMask));
     }
 
-    /// <summary>Material IDs — canonical order from design/MATERIAL_MATRIX.md (+ Steel + Damaged states).</summary>
+    /// <summary>Material IDs — Unified material system synchronized with Asset Studio.</summary>
     public static class MaterialId
     {
+        // Primary Materials (0-5)
         public const ushort Air          = 0;
         public const ushort EnergyShield  = 1;
         public const ushort ChobhamArmor  = 2;
@@ -49,12 +50,22 @@ namespace SteelTide.Voxels
         public const ushort Flesh         = 4;
         public const ushort Steel         = 5;
         
-        // Damaged states (visual feedback for partial penetration)
+        // Terrain Materials (6-10)
+        public const ushort Dirt          = 6;
+        public const ushort Grass         = 7;
+        public const ushort Stone         = 8;
+        public const ushort Wood          = 9;
+        public const ushort Glass         = 10;
+        
+        // Clothing/Organic (11-12)
+        public const ushort Uniform       = 11;
+        
+        // Damaged states (13-15)
         public const ushort DamagedConcrete = 13;
         public const ushort DamagedSteel    = 14;
         public const ushort DamagedArmor    = 15;
 
-        public const int Count = 16;  // Updated to accommodate damaged states
+        public const int Count = 16;
     }
 
     /// <summary>Shape IDs (upper 4 bits).</summary>
