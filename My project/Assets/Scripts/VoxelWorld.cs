@@ -57,18 +57,24 @@ public class VoxelWorld : MonoBehaviour
     /// </summary>
     public void RegisterVoxelObject(Vector3 worldPosition, string assetFileName, float objectVoxelSize)
     {
+        Debug.Log($"[VoxelWorld] RegisterVoxelObject called: {assetFileName} at {worldPosition}");
+        
         // Load voxel data from .stasset file
         VoxelChunk chunk = LoadVoxelAsset(assetFileName);
         if (chunk == null)
         {
-            Debug.LogError($"Failed to load voxel asset: {assetFileName}");
+            Debug.LogError($"[VoxelWorld] Failed to load voxel asset: {assetFileName}");
             return;
         }
         
+        Debug.Log($"[VoxelWorld] Chunk loaded with {chunk.voxels.Count} voxels");
+        
         // Convert world position to voxel grid position
         Vector3Int gridOrigin = WorldToVoxelGrid(worldPosition);
+        Debug.Log($"[VoxelWorld] Grid origin: {gridOrigin}");
         
         // Register each voxel in the world grid
+        int registeredCount = 0;
         foreach (var kvp in chunk.voxels)
         {
             Vector3Int localPos = kvp.Key;
@@ -76,9 +82,10 @@ public class VoxelWorld : MonoBehaviour
             
             Vector3Int worldVoxelPos = gridOrigin + localPos;
             voxelData[worldVoxelPos] = materialID;
+            registeredCount++;
         }
         
-        Debug.Log($"Registered {chunk.voxels.Count} voxels from {assetFileName} at {worldPosition}");
+        Debug.Log($"[VoxelWorld] Registered {registeredCount} voxels from {assetFileName} at {worldPosition}. Total voxels in world: {voxelData.Count}");
     }
     
     /// <summary>
@@ -149,11 +156,23 @@ public class VoxelWorld : MonoBehaviour
         // DDA traversal
         float distanceTraveled = 0f;
         Vector3Int lastVoxel = currentVoxel;
+        int stepsChecked = 0;
+        
+        if (showDebugRays && Time.frameCount % 60 == 0)
+        {
+            Debug.Log($"[VoxelWorld] Raymarch START: origin={rayOrigin}, dir={rayDirection}, startVoxel={currentVoxel}, totalVoxelsInWorld={voxelData.Count}");
+        }
         
         while (distanceTraveled < maxDistance)
         {
             // Check current voxel
             byte material = voxelData.ContainsKey(currentVoxel) ? voxelData[currentVoxel] : (byte)0;
+            stepsChecked++;
+            
+            if (showDebugRays && Time.frameCount % 60 == 0 && stepsChecked <= 5)
+            {
+                Debug.Log($"[VoxelWorld] Step {stepsChecked}: checking voxel {currentVoxel}, material={material}, hasKey={voxelData.ContainsKey(currentVoxel)}");
+            }
             
             if (material != 0) // Hit solid voxel
             {
@@ -272,20 +291,60 @@ public class VoxelWorld : MonoBehaviour
             return null;
         }
         
-        // TODO: Implement .stasset file parsing
-        // For now, return placeholder chunk
+        // Parse .stasset file (SteelTide format)
         VoxelChunk chunk = new VoxelChunk();
         
-        // Placeholder: Create a simple 2x2x2 cube
-        for (int x = 0; x < 2; x++)
+        try
         {
-            for (int y = 0; y < 2; y++)
+            byte[] fileData = File.ReadAllBytes(path);
+            
+            // Validate header (16 bytes total)
+            if (fileData.Length < 16)
             {
-                for (int z = 0; z < 2; z++)
+                Debug.LogError($"File too small: {fileData.Length} bytes");
+                return null;
+            }
+            
+            // Check magic "STAS"
+            if (fileData[0] != 0x53 || fileData[1] != 0x54 || fileData[2] != 0x41 || fileData[3] != 0x53)
+            {
+                Debug.LogError($"Invalid magic bytes (not a .stasset file)");
+                return null;
+            }
+            
+            // Parse dimensions (uint16 at offsets 6, 8, 10)
+            int dimX = fileData[6] | (fileData[7] << 8);
+            int dimY = fileData[8] | (fileData[9] << 8);
+            int dimZ = fileData[10] | (fileData[11] << 8);
+            
+            int totalVoxels = dimX * dimY * dimZ;
+            int dataOffset = 16; // After 16-byte header
+            
+            // Parse voxel data (ushort = 2 bytes per voxel)
+            for (int i = 0; i < totalVoxels; i++)
+            {
+                int byteIndex = dataOffset + (i * 2);
+                if (byteIndex + 1 >= fileData.Length) break;
+                
+                ushort materialID = (ushort)(fileData[byteIndex] | (fileData[byteIndex + 1] << 8));
+                
+                if (materialID != 0) // Only store solid voxels
                 {
-                    chunk.voxels[new Vector3Int(x, y, z)] = 1; // Material ID 1
+                    // Convert linear index to 3D position
+                    int x = i % dimX;
+                    int y = (i / dimX) % dimY;
+                    int z = i / (dimX * dimY);
+                    
+                    chunk.voxels[new Vector3Int(x, y, z)] = (byte)(materialID & 0xFF); // Convert to byte
                 }
             }
+            
+            Debug.Log($"Loaded {chunk.voxels.Count} solid voxels from {fileName} (dims: {dimX}×{dimY}×{dimZ})");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"Failed to parse {fileName}: {e.Message}");
+            return null;
         }
         
         loadedChunks[fileName] = chunk;

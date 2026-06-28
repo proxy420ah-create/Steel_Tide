@@ -304,6 +304,35 @@ Unity scripts: SteelTide\My project\Assets\Scripts\
 
 ---
 
+## ⚠️ **CRITICAL: File Organization Rules**
+
+### **Unity Script Locations (NO DUPLICATES!)**
+
+**RULE: One script name = One location ONLY**
+
+| Script Name | Correct Location | Notes |
+|-------------|------------------|-------|
+| `VoxelObject.cs` | `Assets/Voxels/` | ✅ ONLY location (uses namespace) |
+| `VoxelWorld.cs` | `Assets/Scripts/` | Core physics system |
+| `VoxelPhysics.cs` | `Assets/Scripts/` | Player physics |
+| `VoxelModifier.cs` | `Assets/Scripts/` | Voxel destruction |
+| `VoxelRenderer.cs` | `Assets/Voxels/` | Rendering system |
+
+**Before Creating ANY Script:**
+1. ✅ Search for existing file: `find_by_name` tool
+2. ✅ Check BOTH `Assets/Scripts/` AND `Assets/Voxels/`
+3. ✅ If duplicate exists → DELETE the unused one immediately
+4. ✅ Update this index with the correct location
+
+**Why This Matters:**
+- Unity uses the FIRST script it finds (unpredictable)
+- Editing the wrong file = wasted time, no effect
+- Duplicate files = confusion, bugs, frustration
+
+**Last Duplicate Incident**: June 28, 2026 - VoxelObject.cs (resolved)
+
+---
+
 ## 🚀 **Quick Reference Card**
 
 **Material System:**

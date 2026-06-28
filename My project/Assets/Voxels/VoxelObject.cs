@@ -31,6 +31,29 @@ namespace SteelTide.Voxels
             LoadAsset();
             CreateComputeBuffer();
             SetupRenderer();
+            RegisterWithVoxelWorld();
+        }
+        
+        void RegisterWithVoxelWorld()
+        {
+            // Register voxel data with VoxelWorld for collision detection
+            VoxelWorld voxelWorld = VoxelWorld.Instance;
+            
+            if (voxelWorld == null)
+            {
+                Debug.LogWarning($"[VoxelObject] {gameObject.name}: VoxelWorld not found. Collision detection will not work.");
+                return;
+            }
+            
+            if (voxelData == null || voxelData.Length == 0)
+            {
+                Debug.LogWarning($"[VoxelObject] {gameObject.name}: No voxel data to register.");
+                return;
+            }
+            
+            Debug.Log($"[VoxelObject] {gameObject.name}: Registering with VoxelWorld...");
+            voxelWorld.RegisterVoxelObject(transform.position, assetFileName, voxelSize);
+            Debug.Log($"[VoxelObject] {gameObject.name}: Successfully registered with VoxelWorld!");
         }
         
         void LoadAsset()

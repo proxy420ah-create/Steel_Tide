@@ -44,65 +44,13 @@ Phase 3: FULL VOXEL
 
 ---
 
-## ⚡ **Quick Start: Jump to Voxel Physics**
-
-**If you already have mesh ground + mesh player + voxel buildings working:**
-
-### **Step 1: Create Voxel Ground Plane (15 minutes)**
-
-1. **In Voxel Studio:**
-   ```
-   Generate → Ground Plane
-   Dimensions: 128×4×128 (or larger)
-   Material: Regolith Concrete (2) or Regolith (6)
-   Save as: Ground_Voxel.stasset
-   ```
-
-2. **In Unity:**
-   ```
-   - Create Empty GameObject → Name: "VoxelGround"
-   - Add VoxelObject component
-   - Asset File Name: Ground_Voxel.stasset
-   - Voxel Size: 0.125
-   - Position: (0, 0.25, 0)  ← Y = 4 voxels × 0.125 / 2
-   - Press Play → Should render!
-   ```
-
-### **Step 2: Create Voxel Player (10 minutes)**
-
-1. **In Voxel Studio:**
-   ```
-   Character Generator → Generate Character
-   Height: 32 voxels
-   Save as: Player_Voxel.stasset
-   ```
-
-2. **In Unity:**
-   ```
-   - Create Empty GameObject → Name: "VoxelPlayer"
-   - Add VoxelObject component
-   - Asset File Name: Player_Voxel.stasset
-   - Voxel Size: 0.125
-   - Position: (0, 2.5, 0)  ← Above ground
-   ```
-
-### **Step 3: Add Physics Scripts (Jump to Section 3)**
-
-Now go to **[Phase 2: Voxel Physics System](#3-voxel-physics-system)** for:
-- VoxelWorld script setup
-- VoxelPhysics script (gravity, movement)
-- Raymarching collision
-
-**Total Time:** ~30 minutes to get voxel player standing on voxel ground!
-
----
-
 ## 📋 **Table of Contents**
 1. [Phase 1: Hybrid Setup (Mesh + Voxel)](#1-phase-1-hybrid-setup)
 2. [Building Assets (Voxel Targets)](#2-building-assets)
 3. [Phase 2: Voxel Physics System](#3-voxel-physics-system)
 4. [Phase 3: Full Voxel Integration](#4-full-voxel-integration)
 5. [Examples & Visual Reference](#5-examples--visual-reference)
+6. [Material System Synchronization](#-material-system-synchronization)
 
 ---
 
@@ -314,20 +262,24 @@ Game View (Play Mode):
 
 ---
 
-## ⚠️ **IMPORTANT: Scripts Status**
+## ✅ **Scripts Status - READY!**
 
-### **Scripts You HAVE (Already in Unity):**
-✅ `VoxelObject.cs` - Renders `.stasset` files (you're using this!)  
-✅ `VoxelRenderer.cs` - Generates meshes from voxel data
+### **All Scripts Available in Assets/Scripts:**
+✅ `VoxelObject.cs` - Renders `.stasset` files  
+✅ `VoxelRenderer.cs` - Generates meshes from voxel data  
+✅ `VoxelWorld.cs` - Manages all voxel data for physics/collision  
+✅ `VoxelPhysics.cs` - Player movement with raymarching gravity  
+✅ `VoxelModifier.cs` - Voxel destruction system (shooting/explosions)
 
-### **Scripts You NEED TO CREATE (Phase 2):**
-❌ `VoxelWorld.cs` - Manages all voxel data for physics/collision  
-❌ `VoxelPhysics.cs` - Player movement with raymarching gravity  
-❌ `VoxelModifier.cs` - Voxel destruction system (shooting/explosions)
+**Status**: All scripts are in `My project/Assets/Scripts/` and compiling successfully! ✅
 
-**This section will show you HOW to create these scripts!**
+**What was fixed:**
+- Scripts moved from root to `Assets/Scripts/` folder
+- Fixed `Vector3Int.normalized` compilation error
+- Updated deprecated `FindObjectOfType` to `FindFirstObjectByType`
+- All scripts now visible in Unity's "Add Component" menu
 
-The guide provides the **complete C# code** for each script below. You'll copy-paste them into Unity.
+**You can now use these scripts immediately!**
 
 ---
 
@@ -367,9 +319,9 @@ Player → Raycast DOWN → Voxel Grid → Hit Detection
 
 Gravity rays cast from player's **feet position**, not camera direction.
 
-### **A. VoxelWorld Script** (Already Created!)
+### **A. VoxelWorld Script** ✅ Ready!
 
-**Location:** `Unity/Scripts/VoxelWorld.cs`
+**Location:** `My project/Assets/Scripts/VoxelWorld.cs`
 
 **What it does:**
 - Manages all voxel data in a Dictionary (memory-efficient)
@@ -392,9 +344,9 @@ if (hit.hit) {
 }
 ```
 
-### **B. VoxelPhysics Script** (Already Created!)
+### **B. VoxelPhysics Script** ✅ Ready!
 
-**Location:** `Unity/Scripts/VoxelPhysics.cs`
+**Location:** `My project/Assets/Scripts/VoxelPhysics.cs`
 
 **What it does:**
 - Applies gravity (raycasts DOWN from player)
@@ -414,9 +366,9 @@ void CheckGrounded() {
 }
 ```
 
-### **C. VoxelModifier Script** (Already Created!)
+### **C. VoxelModifier Script** ✅ Ready!
 
-**Location:** `Unity/Scripts/VoxelModifier.cs`
+**Location:** `My project/Assets/Scripts/VoxelModifier.cs`
 
 **What it does:**
 - Left-click to destroy voxels
@@ -433,26 +385,29 @@ Left Click → Raycast from camera → Hit voxel → SetVoxel(pos, 0)
 destructionRadius = 3 → Destroys 7×7×7 sphere of voxels
 ```
 
-### **D. Integration Steps**
+### **D. Integration Steps** ✅ Scripts Ready!
 
-**When you're ready to switch from mesh to voxel:**
+**Now that all scripts are in Assets/Scripts and compiling:**
 
 1. **Create VoxelWorld Manager:**
    - Hierarchy → Create Empty → Name: `VoxelWorldManager`
-   - Add Component → `VoxelWorld.cs`
-   - Set `voxelSize = 0.125`
+   - Add Component → Search "VoxelWorld" → Select `VoxelWorld` ✅
+   - Inspector → Set `voxelSize = 0.125`
 
 2. **Build Voxel Ground:**
    - In Voxel Studio: Create 128×128×4 ground plane
    - Save as `Ground_Voxel.stasset`
-   - In Unity: Create Empty → Add `VoxelObject`
+   - In Unity: Create Empty → Add Component → `VoxelObject` ✅
+   - Inspector → Asset File Name: `Ground_Voxel.stasset`
    - Position: `(0, 0.25, 0)` ← Y = 4 voxels × 0.125 / 2
 
 3. **Create Voxel Player:**
-   - In Voxel Studio: Create 8×16×8 character
+   - In Voxel Studio: Create 8×16×8 character (or use Character Generator)
    - Save as `Player_Voxel.stasset`
-   - In Unity: Create Empty → Add `VoxelObject`
-   - Add `VoxelPhysics.cs` + `VoxelModifier.cs`
+   - In Unity: Create Empty → Add Component → `VoxelObject` ✅
+   - Add Component → Search "VoxelPhysics" → Select `VoxelPhysics` ✅
+   - Add Component → Search "VoxelModifier" → Select `VoxelModifier` ✅
+   - Inspector → Assign VoxelWorld reference
    - Position: `(0, 2, 0)` ← Above ground
 
 4. **Delete Temporary Objects:**
@@ -472,29 +427,6 @@ destructionRadius = 3 → Destroys 7×7×7 sphere of voxels
 
 > **Goal**: Polish and optimize the complete voxel destruction system
 
----
-
-## 📝 **SCRIPT CREATION GUIDE**
-
-**The following sections provide COMPLETE C# code for the physics scripts.**
-
-### **How to Create These Scripts:**
-
-1. **In Unity:** `Assets` folder → Right-click → `Create` → `C# Script`
-2. **Name it** exactly as shown (e.g., `VoxelWorld`)
-3. **Double-click** to open in your code editor
-4. **Delete** the default code
-5. **Copy-paste** the code from this guide
-6. **Save** the file
-7. **Return to Unity** (it will compile automatically)
-
-**You'll create 3 scripts:**
-- `VoxelWorld.cs` (Step 1)
-- `VoxelPhysics.cs` (Step 2)
-- `VoxelModifier.cs` (Step 3)
-
----
-
 ### **Architecture Overview**
 
 The voxel physics system uses **raymarching** for collision detection:
@@ -505,197 +437,11 @@ Player Position → Raycast → Voxel Grid → Collision Response
 
 **Key Components:**
 1. **VoxelWorld**: Manages all voxel data in the scene
-2. **RaymarchCollider**: Performs raymarching collision detection
+2. **RaymarchCollider**: Performs raymarching collision detection  
 3. **VoxelPhysics**: Handles physics simulation (gravity, velocity)
 4. **VoxelModifier**: Handles dynamic voxel destruction
 
----
-
-### **Step 1: Create VoxelWorld Script**
-
-**In Unity:** `Assets/Scripts` → Right-click → `Create` → `C# Script` → Name: `VoxelWorld`
-
-**Copy this COMPLETE code:**
-
-```csharp
-using UnityEngine;
-using System.Collections.Generic;
-
-public class VoxelWorld : MonoBehaviour
-{
-    [System.Serializable]
-    public class VoxelChunk
-    {
-        public VoxelObject voxelObject;
-        public byte[,,] voxelData;
-        public Vector3Int gridSize;
-        public float voxelSize;
-    }
-    
-    public List<VoxelChunk> chunks = new List<VoxelChunk>();
-    
-    void Start()
-    {
-        // Load all VoxelObjects in scene
-        VoxelObject[] voxelObjects = FindObjectsOfType<VoxelObject>();
-        foreach (var vo in voxelObjects)
-        {
-            var chunk = new VoxelChunk
-            {
-                voxelObject = vo,
-                gridSize = vo.GridSize,
-                voxelSize = vo.VoxelSize
-            };
-            chunks.Add(chunk);
-        }
-    }
-    
-    public bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out RaycastHit hit)
-    {
-        // Raymarch through all chunks
-        foreach (var chunk in chunks)
-        {
-            if (RaymarchChunk(chunk, origin, direction, maxDistance, out hit))
-                return true;
-        }
-        hit = new RaycastHit();
-        return false;
-    }
-    
-    private bool RaymarchChunk(VoxelChunk chunk, Vector3 origin, Vector3 direction, float maxDistance, out RaycastHit hit)
-    {
-        // DDA raymarching implementation
-        // Convert world position to voxel grid coordinates
-        // March through grid until solid voxel hit or max distance reached
-        
-        // TODO: Implement DDA raymarching (similar to Voxel Studio)
-        hit = new RaycastHit();
-        return false;
-    }
-    
-    public void SetVoxel(Vector3 worldPos, byte material)
-    {
-        // Find which chunk contains this position
-        // Convert world position to voxel coordinates
-        // Update voxel data
-        // Trigger mesh regeneration
-    }
-}
-```
-
-### **Step 2: Create VoxelPhysics Script**
-
-Create `Assets/Scripts/VoxelPhysics.cs`:
-
-```csharp
-using UnityEngine;
-
-public class VoxelPhysics : MonoBehaviour
-{
-    [Header("Physics Settings")]
-    public float gravity = -20f;
-    public float moveSpeed = 5f;
-    public float jumpHeight = 1.5f;
-    
-    [Header("References")]
-    public VoxelWorld voxelWorld;
-    public Transform playerCamera;
-    
-    private Vector3 velocity;
-    private bool isGrounded;
-    
-    void Start()
-    {
-        if (voxelWorld == null)
-            voxelWorld = FindObjectOfType<VoxelWorld>();
-    }
-    
-    void Update()
-    {
-        HandleMovement();
-        HandleMouseLook();
-        ApplyGravity();
-    }
-    
-    void HandleMovement()
-    {
-        float x = Input.GetAxis("Horizontal");
-        float z = Input.GetAxis("Vertical");
-        
-        Vector3 move = transform.right * x + transform.forward * z;
-        Vector3 desiredMove = move * moveSpeed * Time.deltaTime;
-        
-        // Check collision before moving
-        if (!CheckCollision(transform.position + desiredMove))
-        {
-            transform.position += desiredMove;
-        }
-    }
-    
-    void ApplyGravity()
-    {
-        // Raycast down to check ground
-        RaycastHit hit;
-        if (voxelWorld.Raycast(transform.position, Vector3.down, 0.2f, out hit))
-        {
-            isGrounded = true;
-            velocity.y = 0;
-        }
-        else
-        {
-            isGrounded = false;
-            velocity.y += gravity * Time.deltaTime;
-        }
-        
-        // Jump
-        if (Input.GetButtonDown("Jump") && isGrounded)
-        {
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-        }
-        
-        // Apply vertical movement
-        Vector3 verticalMove = Vector3.up * velocity.y * Time.deltaTime;
-        if (!CheckCollision(transform.position + verticalMove))
-        {
-            transform.position += verticalMove;
-        }
-    }
-    
-    bool CheckCollision(Vector3 position)
-    {
-        // Raycast in movement direction
-        Vector3 direction = (position - transform.position).normalized;
-        float distance = Vector3.Distance(position, transform.position);
-        
-        RaycastHit hit;
-        return voxelWorld.Raycast(transform.position, direction, distance, out hit);
-    }
-    
-    void HandleMouseLook()
-    {
-        float mouseX = Input.GetAxis("Mouse X") * 2f;
-        float mouseY = Input.GetAxis("Mouse Y") * 2f;
-        
-        transform.Rotate(Vector3.up * mouseX);
-        
-        // Camera pitch
-        Vector3 cameraRotation = playerCamera.localEulerAngles;
-        cameraRotation.x -= mouseY;
-        cameraRotation.x = Mathf.Clamp(cameraRotation.x, -80f, 80f);
-        playerCamera.localEulerAngles = cameraRotation;
-    }
-}
-```
-
-### **Step 3: Attach Scripts**
-
-1. Create empty GameObject: `VoxelWorldManager`
-2. Add `VoxelWorld` script
-3. Select `Player` GameObject
-4. Add `VoxelPhysics` script
-5. Assign references:
-   - **Voxel World**: Drag `VoxelWorldManager` here
-   - **Player Camera**: Drag `PlayerCamera` child
+All scripts are ready to use via Unity's "Add Component" menu!
 
 ---
 
@@ -799,66 +545,7 @@ showDebugRays = true;  // Show ground check rays + debug overlay
 
 ## 5️⃣ **Examples & Visual Reference**
 
-### **Step 1: Create VoxelModifier Script**
-
-Create `Assets/Scripts/VoxelModifier.cs`:
-
-```csharp
-using UnityEngine;
-
-public class VoxelModifier : MonoBehaviour
-{
-    [Header("Modification Settings")]
-    public float range = 5f;
-    public int brushSize = 1;
-    public byte materialToPlace = 1;
-    
-    [Header("References")]
-    public VoxelWorld voxelWorld;
-    public Transform playerCamera;
-    
-    void Update()
-    {
-        // Left click: destroy voxel
-        if (Input.GetButtonDown("Fire1"))
-        {
-            ModifyVoxel(0); // 0 = air/destroy
-        }
-        
-        // Right click: place voxel
-        if (Input.GetButtonDown("Fire2"))
-        {
-            ModifyVoxel(materialToPlace);
-        }
-    }
-    
-    void ModifyVoxel(byte material)
-    {
-        RaycastHit hit;
-        Vector3 rayOrigin = playerCamera.position;
-        Vector3 rayDirection = playerCamera.forward;
-        
-        if (voxelWorld.Raycast(rayOrigin, rayDirection, range, out hit))
-        {
-            // Calculate voxel position
-            Vector3 voxelPos = hit.point - hit.normal * 0.5f;
-            voxelWorld.SetVoxel(voxelPos, material);
-        }
-    }
-}
-```
-
-### **Step 2: Attach Script**
-
-1. Select `Player` GameObject
-2. Add `VoxelModifier` script
-3. Assign references:
-   - **Voxel World**: Drag `VoxelWorldManager`
-   - **Player Camera**: Drag `PlayerCamera`
-
----
-
-### **Example 1: Small Test Scene**
+### **Example 1: Small Test Scene (Phase 1)**
 
 **Scene Hierarchy:**
 ```
@@ -968,310 +655,19 @@ SampleScene
    Next: Add gameplay mechanics, weapons, enemies
 ```
 
-## 🎯 **Quick Start Workflow**
-
-### **Phase 1: Hybrid Setup (30 minutes)**
-
-1. ✅ Create mesh plane for ground
-2. ✅ Create capsule player with camera
-3. ✅ Generate 3-5 buildings in Voxel Studio
-4. ✅ Place buildings as VoxelObjects
-5. ✅ Press Play → Walk around and inspect
-
-**Checkpoint:** Can you see voxel buildings rendered? ✅
-
-### **Phase 2: Voxel Physics (2-3 hours)**
-
-1. ✅ Copy scripts to Unity project
-2. ✅ Create VoxelWorldManager
-3. ✅ Build voxel ground plane in Voxel Studio
-4. ✅ Create voxel player character
-5. ✅ Add VoxelPhysics + VoxelModifier scripts
-6. ✅ Test movement and destruction
-
-**Checkpoint:** Can you walk on voxel ground and destroy voxels? ✅
-
-### **Phase 3: Polish (1-2 hours)**
-
-1. ✅ Tune physics parameters (gravity, jump, speed)
-2. ✅ Add weapon system
-3. ✅ Test destruction radius
-4. ✅ Optimize performance
-5. ✅ Add visual effects (future)
-
-**Checkpoint:** Does it feel good to play? ✅
-
 ---
 
 ## 🎨 **Material System Synchronization**
 
 > **CRITICAL:** Unity's Material Colors array MUST match Voxel Studio's master material list!
 
-### **Why Synchronization Matters**
+**For complete material synchronization instructions, see:** `MATERIAL_SYNC_COMPLETE.md`
 
-**Voxel Studio** stores material IDs (0-20) in `.stasset` files.  
-**Unity** uses those IDs to look up colors in the `Material Colors` array.
-
-**If they don't match:**
-- ❌ Buildings appear with wrong colors
-- ❌ Flesh becomes concrete, steel becomes wood
-- ❌ Your carefully painted assets look broken
-
-**When they match:**
-- ✅ Colors are identical between Voxel Studio and Unity
-- ✅ Assets look exactly as designed
-- ✅ Material system works perfectly
-
----
-
-### **Master Material List (Voxel Studio)**
-
-**Reference:** `MATERIAL_SYSTEM.md`
-
-```
-ID  | Name                  | RGB Color           | Use Case
-----|-----------------------|---------------------|------------------------
-0   | Air                   | (0, 0, 0)           | Empty space
-1   | Prefab Composite      | (166, 153, 140)     | Modular buildings
-2   | Regolith Concrete     | (64, 51, 46)        | Roads/foundations
-3   | Concrete              | (128, 128, 128)     | Standard structures
-4   | Flesh                 | (255, 153, 153)     | Organic matter
-5   | Durasteel             | (71, 77, 82)        | Reinforced metal
-6   | Regolith              | (102, 76, 51)       | Alien soil
-7   | Xenoflora             | (38, 140, 128)      | Alien plants
-8   | Basalt                | (64, 64, 69)        | Volcanic rock
-9   | Wood                  | (153, 102, 51)      | Imported lumber
-10  | Transparent Aluminum  | (217, 235, 255)     | Sci-fi glass
-11  | Uniform               | (51, 76, 51)        | Military uniform
-12  | Reserved              | -                   | Future use
-13  | Damaged Concrete      | (217, 38, 38)       | Battle damage
-14  | Damaged Steel         | (230, 102, 26)      | Heat damage
-15  | Damaged Armor         | (204, 51, 51)       | Heavy damage
-16  | Ablative Plating      | (38, 41, 46)        | Heat-resistant armor
-17  | Reactive Armor        | (89, 92, 97)        | Explosive tiles
-18  | Foam-Crete            | (191, 191, 191)     | Quick-deploy foam
-19  | Nanomesh Fabric       | (26, 38, 64)        | Smart fabric
-20  | Plasteel Panels       | (115, 115, 115)     | Plastic-metal hybrid
-```
-
----
-
-### **Unity Material Colors Array Setup**
-
-**Location:** `VoxelRenderer.cs` → Inspector → `Material Colors` array
-
-### **Method 1: Eyedropper Technique (RECOMMENDED)**
-
-**You've already done this for IDs 0-16!** ✅
-
-**For remaining materials (17-20):**
-
-1. **Generate Material Sampler in Voxel Studio:**
-   ```
-   Generate → 🎨 Material Sampler (All Materials Grid)
-   ```
-   - Creates a grid showing ALL materials (0-20)
-   - Each material is a distinct block
-   - Save as `MaterialSampler.stasset`
-
-2. **Load in Unity:**
-   ```
-   - Create GameObject → Add VoxelObject
-   - Asset File Name: MaterialSampler.stasset
-   - Press Play
-   ```
-
-3. **Use Eyedropper:**
-   ```
-   - Pause game
-   - Open Scene view
-   - Use Unity's eyedropper tool on each material block
-   - Copy RGB values to Material Colors array
-   ```
-
-4. **Update Material Colors Array:**
-   ```
-   VoxelRenderer → Material Colors → Size: 21
-   
-   Element 17: (89, 92, 97)     ← Reactive Armor (gunmetal)
-   Element 18: (191, 191, 191)  ← Foam-Crete (light gray)
-   Element 19: (26, 38, 64)     ← Nanomesh Fabric (dark blue)
-   Element 20: (115, 115, 115)  ← Plasteel Panels (medium gray)
-   ```
-
----
-
-### **Method 2: Manual Entry (PRECISE)**
-
-**If you want exact RGB values from the master list:**
-
-**Step-by-Step:**
-
-1. **Open Unity** → Select any `VoxelRenderer` component
-2. **Inspector** → Find `Material Colors` array
-3. **Set Size** → `21` (for materials 0-20)
-4. **Expand array** → Click arrow next to `Material Colors`
-5. **For each element**, enter RGB values:
-
-```csharp
-// Copy these EXACT values into Unity Inspector:
-
-Element 0:  R=0,   G=0,   B=0     // Air (transparent)
-Element 1:  R=166, G=153, B=140   // Prefab Composite (tan)
-Element 2:  R=64,  G=51,  B=46    // Regolith Concrete (dark brown)
-Element 3:  R=128, G=128, B=128   // Concrete (gray)
-Element 4:  R=255, G=153, B=153   // Flesh (pink)
-Element 5:  R=71,  G=77,  B=82    // Durasteel (blue-gray)
-Element 6:  R=102, G=76,  B=51    // Regolith (brown)
-Element 7:  R=38,  G=140, B=128   // Xenoflora (teal)
-Element 8:  R=64,  G=64,  B=69    // Basalt (dark gray)
-Element 9:  R=153, G=102, B=51    // Wood (tan)
-Element 10: R=217, G=235, B=255   // Transparent Aluminum (light blue)
-Element 11: R=51,  G=76,  B=51    // Uniform (dark green)
-Element 12: R=0,   G=0,   B=0     // Reserved (black)
-Element 13: R=217, G=38,  B=38    // Damaged Concrete (crimson)
-Element 14: R=230, G=102, B=26    // Damaged Steel (orange)
-Element 15: R=204, G=51,  B=51    // Damaged Armor (dark red)
-Element 16: R=38,  G=41,  B=46    // Ablative Plating (charcoal)
-Element 17: R=89,  G=92,  B=97    // Reactive Armor (gunmetal)
-Element 18: R=191, G=191, B=191   // Foam-Crete (light gray)
-Element 19: R=26,  G=38,  B=64    // Nanomesh Fabric (dark blue)
-Element 20: R=115, G=115, B=115   // Plasteel Panels (medium gray)
-```
-
-**Pro Tip:** Unity uses 0-255 RGB values, NOT 0.0-1.0 floats!
-
----
-
-### **Method 3: Material Sampler Asset (FASTEST)**
-
-**Use the built-in Material Sampler generator:**
-
-1. **In Voxel Studio:**
-   ```
-   Generate → 🎨 Material Sampler (All Materials Grid)
-   ```
-   - Generates a 21×1×1 grid (one voxel per material)
-   - Each voxel uses its corresponding material ID
-   - Perfect for color matching!
-
-2. **Save as:**
-   ```
-   File → Save As → MaterialSampler.stasset
-   ```
-
-3. **In Unity:**
-   ```
-   - Create GameObject
-   - Add VoxelObject component
-   - Asset File Name: MaterialSampler.stasset
-   - Press Play
-   ```
-
-4. **Hover over each voxel:**
-   - Material label shows: "Material 17: Reactive Armor"
-   - Use eyedropper or visual comparison
-   - Update Material Colors array
-
----
-
-### **Verification Checklist**
-
-**After updating Material Colors array:**
-
-- [ ] **Test Building:** Load a building asset
-  - Walls should be **tan** (Prefab Composite)
-  - Foundation should be **dark brown** (Regolith Concrete)
-  
-- [ ] **Test Character:** Load a humanoid
-  - Head should be **pink** (Flesh)
-  - Body should be **dark green** (Uniform)
-  - Limbs should be **medium gray** (Plasteel Panels)
-
-- [ ] **Test Damaged Materials:** Create test asset with IDs 13-15
-  - Damaged Concrete should be **crimson**
-  - Damaged Steel should be **orange**
-  - Damaged Armor should be **dark red**
-
-- [ ] **Test Advanced Materials:** Create test asset with IDs 16-20
-  - Ablative Plating should be **charcoal**
-  - Reactive Armor should be **gunmetal**
-  - Foam-Crete should be **light gray**
-  - Nanomesh Fabric should be **dark blue**
-  - Plasteel Panels should be **medium gray**
-
----
-
-### **Common Issues & Fixes**
-
-**Issue 1: Colors are wrong**
-```
-Problem: Building walls are gray instead of tan
-Cause: Material Colors array not updated
-Fix: Check Element 1 = (166, 153, 140) for Prefab Composite
-```
-
-**Issue 2: Materials 17-20 show as black**
-```
-Problem: New materials appear black
-Cause: Material Colors array size is too small
-Fix: Set Size = 21 (not 17!)
-```
-
-**Issue 3: Eyedropper gives wrong colors**
-```
-Problem: Colors don't match Voxel Studio
-Cause: Lighting/post-processing affecting colors
-Fix: Use Scene view (not Game view) for eyedropper
-      OR use manual RGB entry from master list
-```
-
-**Issue 4: Material Sampler not showing**
-```
-Problem: MaterialSampler.stasset loads but nothing renders
-Cause: Volume Dims might be 1×1×1 (very small!)
-Fix: Check Inspector → Volume Dims should be 21×1×1
-     Zoom in close in Scene view
-```
-
----
-
-### **Quick Reference: Material Categories**
-
-**Core Materials (0-5):**
-- Air, Prefab Composite, Regolith Concrete, Concrete, Flesh, Durasteel
-
-**Terrain (6-10):**
-- Regolith, Xenoflora, Basalt, Wood, Transparent Aluminum
-
-**Utility (11-12):**
-- Uniform, Reserved
-
-**Damage States (13-15):**
-- Damaged Concrete, Damaged Steel, Damaged Armor
-
-**Advanced Armor (16-20):**
-- Ablative Plating, Reactive Armor, Foam-Crete, Nanomesh Fabric, Plasteel Panels
-
----
-
-### **Workflow Summary**
-
-```
-1. Generate MaterialSampler in Voxel Studio
-   ↓
-2. Load in Unity
-   ↓
-3. Use eyedropper OR manual entry
-   ↓
-4. Update Material Colors array (Size: 21)
-   ↓
-5. Verify with test assets
-   ↓
-6. ✅ Colors match perfectly!
-```
-
-**Time Required:** 10-15 minutes for all 21 materials
+**Quick Summary:**
+- Materials 0-16: ✅ Already synced (eyedropper method)
+- Materials 17-20: ⚠️ Pending sync (5 minutes)
+- Use Material Sampler generator in Voxel Studio for easy color matching
+- Reference: `MATERIAL_SYSTEM.md` for full material list
 
 ---
 
@@ -1301,4 +697,4 @@ Fix: Check Inspector → Volume Dims should be 21×1×1
 ---
 
 **Last Updated**: June 28, 2026  
-**Version**: 3.1.0 (Voxel Physics Priority Edition)
+**Version**: 3.3.0 (Cleaned up - Removed duplicate sections, reorganized for clarity)

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// Handles dynamic voxel modification (destruction/placement) at runtime.
@@ -84,14 +85,20 @@ public class VoxelModifier : MonoBehaviour
         UpdateTargetVoxel();
         
         // Handle input
-        if (Input.GetKeyDown(destroyKey))
+        var mouse = Mouse.current;
+        if (mouse != null)
         {
-            DestroyVoxel();
-        }
-        
-        if (Input.GetKeyDown(placeKey))
-        {
-            PlaceVoxel();
+            // Left click to destroy
+            if (mouse.leftButton.wasPressedThisFrame)
+            {
+                DestroyVoxel();
+            }
+            
+            // Right click to place
+            if (mouse.rightButton.wasPressedThisFrame)
+            {
+                PlaceVoxel();
+            }
         }
     }
     

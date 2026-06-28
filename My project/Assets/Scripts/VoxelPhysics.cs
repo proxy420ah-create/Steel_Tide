@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// Custom voxel-based physics controller for player character.
@@ -93,35 +94,45 @@ public class VoxelPhysics : MonoBehaviour
     private void GatherInput()
     {
         // Movement input (WASD)
-        moveInput = new Vector2(
-            Input.GetAxisRaw("Horizontal"),
-            Input.GetAxisRaw("Vertical")
-        );
-        
-        // Look input (Mouse)
-        lookInput = new Vector2(
-            Input.GetAxis("Mouse X"),
-            Input.GetAxis("Mouse Y")
-        );
-        
-        // Jump input (Space)
-        jumpInput = Input.GetButtonDown("Jump");
-        
-        // Sprint input (Shift)
-        sprintInput = Input.GetKey(KeyCode.LeftShift);
-        
-        // Unlock cursor (Escape)
-        if (Input.GetKeyDown(KeyCode.Escape))
+        var keyboard = Keyboard.current;
+        if (keyboard != null)
         {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            float horizontal = 0f;
+            float vertical = 0f;
+            
+            if (keyboard.aKey.isPressed) horizontal -= 1f;
+            if (keyboard.dKey.isPressed) horizontal += 1f;
+            if (keyboard.wKey.isPressed) vertical += 1f;
+            if (keyboard.sKey.isPressed) vertical -= 1f;
+            
+            moveInput = new Vector2(horizontal, vertical);
+            
+            // Jump input (Space)
+            jumpInput = keyboard.spaceKey.wasPressedThisFrame;
+            
+            // Sprint input (Shift)
+            sprintInput = keyboard.leftShiftKey.isPressed;
+            
+            // Unlock cursor (Escape)
+            if (keyboard.escapeKey.wasPressedThisFrame)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
         }
         
-        // Re-lock cursor (Left Click)
-        if (Input.GetMouseButtonDown(0) && Cursor.lockState == CursorLockMode.None)
+        // Look input (Mouse)
+        var mouse = Mouse.current;
+        if (mouse != null)
         {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            lookInput = mouse.delta.ReadValue();
+            
+            // Re-lock cursor (Left Click)
+            if (mouse.leftButton.wasPressedThisFrame && Cursor.lockState == CursorLockMode.None)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
         }
     }
     
@@ -161,6 +172,12 @@ public class VoxelPhysics : MonoBehaviour
         {
             Color rayColor = isGrounded ? Color.green : Color.red;
             Debug.DrawRay(rayOrigin, rayDirection * groundCheckDistance, rayColor);
+            
+            // Debug log every 60 frames (~1 second)
+            if (Time.frameCount % 60 == 0)
+            {
+                Debug.Log($"Ground Check: Origin={rayOrigin}, Grounded={isGrounded}, Hit={hit.hit}, Distance={hit.distance}");
+            }
         }
         
         // Reset vertical velocity if grounded
