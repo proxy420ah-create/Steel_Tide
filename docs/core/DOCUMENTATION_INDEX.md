@@ -1,11 +1,41 @@
 # Steel Tide: First Device - Documentation Index
 
-**Last Updated**: June 25, 2026
-**Version**: 0.1.0-alpha — Initial Project Setup
+**Last Updated**: June 29, 2026
+**Version**: 0.2.0-alpha — VoxelWorld Architecture Established
 **Location**: `docs/core/DOCUMENTATION_INDEX.md`
 
 > 🚨 **READ FIRST**: This index is the single entry point to all project
 > documentation. Consult it before searching the codebase or implementing work.
+
+---
+
+## ⚠️ CRITICAL: MANDATORY FIRST READ
+
+### **🔒 docs/VOXELWORLD_ARCHITECTURE.md** ✅ FOUNDATIONAL (Jun 29, 2026)
+
+**STATUS**: 🔴 **MANDATORY READING FOR ALL DEVELOPMENT**
+
+This document defines the **VoxelWorld-centric architecture** that is the foundation
+of Steel Tide's dynamic voxel world system. Every feature, system, and enhancement
+MUST be compatible with this architecture.
+
+**You MUST read this document BEFORE**:
+- Implementing ANY voxel-related feature
+- Working with collision or physics systems
+- Modifying VoxelObject, VoxelWorld, or VoxelPhysics
+- Adding AI pathfinding or gameplay systems
+- Implementing multiplayer synchronization
+- Creating save/load systems
+
+**Key Concepts**:
+- VoxelWorld is the single source of truth (sparse dictionary)
+- VoxelObject syncs TO VoxelWorld (not the other way around)
+- Visual and physics state are ALWAYS synchronized
+- All systems query VoxelWorld for collision/physics/AI
+- Destroyed voxels are removed from dictionary (performance optimization)
+
+**Location**: `docs/VOXELWORLD_ARCHITECTURE.md`  
+**Priority**: 🔴 **CRITICAL** — Read this FIRST, before any other documentation
 
 ---
 
@@ -67,6 +97,27 @@ GPU volume raymarching, and the GameObject-decoupling mandate.
 Data-oriented coding rules: memory locality, struct-of-arrays, Burst-safety,
 documentation-first workflow, and recent-changes discipline.
 - **Priority**: HIGH — coding standards.
+
+---
+
+## 🧊 Voxel Systems Documentation
+
+### **docs/VOXELWORLD_ARCHITECTURE.md** 🔴 CRITICAL (Jun 29, 2026)
+**MANDATORY FIRST READ** — VoxelWorld-centric architecture, synchronization patterns,
+data flow, and critical rules for all voxel-related development.
+- **Priority**: 🔴 **CRITICAL** — Foundation for all voxel systems
+
+### **docs/VOXEL_METRICS_AND_UNITS.md** ✅ COMPLETE
+Coordinate systems, voxel sizing, world-to-grid conversion, and scaling guidelines.
+- **Priority**: HIGH — Required for spatial calculations
+
+### **docs/VOXEL_COORDINATE_SYSTEM.md** ✅ COMPLETE
+Detailed coordinate transformation math and examples.
+- **Priority**: MEDIUM — Reference for coordinate conversions
+
+### **docs/VOXEL_SCALING_TOOL.md** ✅ COMPLETE
+Tools and utilities for voxel asset scaling and optimization.
+- **Priority**: LOW — Asset pipeline utilities
 
 ---
 
