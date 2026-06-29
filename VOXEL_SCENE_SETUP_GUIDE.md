@@ -657,7 +657,99 @@ SampleScene
 
 ---
 
-## 🎨 **Material System Synchronization**
+## � **VoxelPlayer Hierarchy Setup (STANDARD WORKFLOW)**
+
+### **✅ Recommended Structure:**
+
+```
+VoxelPlayer (GameObject)
+├─ CharacterController (Height: 4.0, Center: 0,2,0, Radius: 0.5)
+├─ VoxelPhysics (script)
+├─ VoxelModel (child GameObject - visual offset)
+│  ├─ Transform Position: (-0.6, -2.0, -0.4) ← Centers the model
+│  └─ VoxelObject (Player_Voxel.stasset)
+└─ Player Camera (child GameObject - camera offset)
+   └─ Transform Position: (0, 3, -5) ← Behind and above player
+```
+
+### **🔧 Why This Structure?**
+
+**Separation of Concerns:**
+- **VoxelPlayer (parent)** = Physics, collision, gameplay logic
+- **VoxelModel (child)** = Visual representation only
+- **Player Camera (child)** = View/rendering only
+
+**Benefits:**
+1. ✅ Import `.stasset` files as-is from Voxel Studio (no pivot changes needed)
+2. ✅ Adjust visual alignment per-character in Unity
+3. ✅ No need to regenerate assets when tweaking alignment
+4. ✅ Clean separation between gameplay and visuals
+5. ✅ Standard Unity pattern (used in most games)
+
+### **📋 Setup Steps:**
+
+**1. Create VoxelPlayer:**
+```
+1. Create Empty GameObject → Name: "VoxelPlayer"
+2. Add CharacterController component
+   - Height: 4.0 (32 voxels × 0.125)
+   - Center: (0, 2.0, 0) (half height)
+   - Radius: 0.5
+3. Add VoxelPhysics script
+```
+
+**2. Create VoxelModel Child:**
+```
+1. Right-click VoxelPlayer → Create Empty Child
+2. Name: "VoxelModel"
+3. Add VoxelObject component
+   - Asset File Name: "Player_Voxel.stasset"
+   - Voxel Size: 0.125
+   - Click "Load Dimensions from .stasset File" button ← NEW!
+   - Volume Dims updates to actual size (e.g., 10×32×6)
+4. Add VoxelModelAligner component (AUTOMATIC CENTERING!)
+   - Auto Align: ✅ Enabled
+   - Align Bottom: ✅ Enabled (keeps feet at Y=0)
+   - Automatically aligns when dimensions are loaded! ✅
+5. Done! Model is centered in Edit Mode (no Play mode needed!) ✅
+```
+
+**Why This Works:**
+- VoxelObjectEditor loads `.stasset` dimensions in Edit Mode
+- VoxelModelAligner detects dimension change and auto-aligns
+- No need to enter Play mode!
+- Alignment is saved immediately
+
+**Manual Method (if you prefer):**
+```
+Set Local Position to center the model:
+   - For 10×32×6 character: (-0.625, 0, -0.375)
+   - Formula: (-width/2, 0, -depth/2) in world units
+```
+
+**3. Add Camera Child:**
+```
+1. Right-click VoxelPlayer → Create Camera Child
+2. Name: "Player Camera"
+3. Set Local Position: (0, 3, -5) (behind and above)
+4. Assign to VoxelPhysics → Camera Transform field
+```
+
+### **🎯 Workflow Summary:**
+
+**Voxel Studio → Unity Pipeline:**
+1. Create character in Voxel Studio
+2. Export `.stasset` file (corner pivot is fine!)
+3. Copy to Unity's StreamingAssets folder
+4. Create VoxelPlayer with child structure above
+5. Adjust VoxelModel's local position to center visuals
+6. Done! ✅
+
+**No need to change Voxel Studio output format!**
+
+---
+
+## �� **Material System Synchronization**
 
 > **CRITICAL:** Unity's Material Colors array MUST match Voxel Studio's master material list!
 

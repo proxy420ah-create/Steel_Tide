@@ -30,14 +30,18 @@ uint VxRotation(uint v)  { return (v >> VX_ROTATION_SHIFT) & VX_ROTATION_MASK; }
 // Packed voxel words as structured data (direct integer access, no float conversion)
 StructuredBuffer<uint>   _VoxelData;    // Array of packed 16-bit voxel structs
 RWTexture2D<float4>      _Output;       // screen-space color target
+RWTexture2D<float>       _DepthBuffer;  // per-pixel depth (world units)
 
 // Per-material color lookup (index by 9-bit material ID). Up to 512 entries.
 StructuredBuffer<float4> _MaterialColors;
+int    _MaterialCount;
 
 int3   _VolumeDims;        // voxel counts (x,y,z) — EXPLICIT integer bounds
 float  _VoxelSize;         // world units per voxel
-float3 _CameraOrigin;      // world space
+float3 _CameraOrigin;      // world space camera origin (for this volume)
+float3 _VolumeOffset;      // world-space offset of current volume
 float4x4 _CameraToWorld;   // camera-to-world matrix
+float4x4 _WorldToCamera;   // world-to-camera matrix
 float4x4 _InvProjection;   // inverse projection matrix
 float2 _ScreenSize;        // pixels
 int    _MaxSteps;          // safety cap on DDA iterations
@@ -105,7 +109,9 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
 
     // Read existing pixel (for multi-volume compositing)
     float4 existingColor = _Output[id.xy];
+    float  existingDepth = _DepthBuffer[id.xy];
     float4 color = existingColor; // Start with existing color (preserves previous volumes)
+    float  depth = existingDepth;
     
     // Volume bounds in world space
     float3 volumeMin = float3(0, 0, 0);
@@ -156,6 +162,8 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
     
     float3 tMax = sideDist;
     float3 tDelta = deltaDist;
+    float currentT = tStart;
+    float worldEntry = length((_CameraOrigin + _VolumeOffset) + rd * tStart - (_CameraOrigin + _VolumeOffset));
     
     float3 normal = float3(0, 1, 0); // Track which face was hit for proper shading
 
@@ -176,7 +184,8 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
         if (mat != 0u) // 0 = Air
         {
             // Clamp material ID to valid range (safety check)
-            mat = min(mat, 15u);
+            uint maxMat = max(1, _MaterialCount) - 1;
+            mat = min(mat, maxMat);
             
             // Get base material color
             float4 baseColor = _MaterialColors[mat];
@@ -202,23 +211,30 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
             float3 lightDir = normalize(float3(0.5, 0.8, -0.3));
             float diffuse = max(0.3, dot(normal, lightDir)); // Min 30% ambient
             
-            color = float4(baseColor.rgb * diffuse, baseColor.a);
+            if (currentT <= depth)
+            {
+                color = float4(baseColor.rgb * diffuse, baseColor.a);
+                depth = worldEntry + (currentT - tStart);
+            }
             break;
         }
 
         // Advance to next voxel along smallest tMax axis
         // Track the face normal for proper flat-color shading
+        float nextT;
         if (tMax.x < tMax.y)
         {
             if (tMax.x < tMax.z) 
             { 
                 voxel.x += step.x; 
+                nextT = tMax.x;
                 tMax.x += tDelta.x;
                 normal = float3(-step.x, 0, 0); // X-axis face
             }
             else
             { 
                 voxel.z += step.z; 
+                nextT = tMax.z;
                 tMax.z += tDelta.z;
                 normal = float3(0, 0, -step.z); // Z-axis face
             }
@@ -228,16 +244,20 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
             if (tMax.y < tMax.z) 
             { 
                 voxel.y += step.y; 
+                nextT = tMax.y;
                 tMax.y += tDelta.y;
                 normal = float3(0, -step.y, 0); // Y-axis face
             }
             else
             { 
                 voxel.z += step.z; 
+                nextT = tMax.z;
                 tMax.z += tDelta.z;
                 normal = float3(0, 0, -step.z); // Z-axis face
             }
         }
+
+        currentT = nextT;
     }
 
     // Draw crosshair overlay (always on top)
@@ -260,7 +280,10 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
         color = lerp(color, float4(0.0, 1.0, 0.0, 1.0), 0.8);
     }
     
+    // Convert depth from local volume distance to world-space distance for consistent compositing
+    float worldDepth = depth;
     _Output[id.xy] = color;
+    _DepthBuffer[id.xy] = worldDepth;
 }
 
 // TODO:

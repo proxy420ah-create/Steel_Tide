@@ -14,7 +14,6 @@ print("✅ Using pyqtgraph viewport (fast and reliable)")
     
 from tool_panel import ToolPanel
 from brush_panel import BrushPanel
-from character_generator_panel import CharacterGeneratorPanel
 from settings_dialog import SettingsDialog
 from stasset_io import load_stasset, save_stasset
 from shape_generator import (generate_cube, generate_sphere, generate_hollow_shell, generate_test_cube,
@@ -23,8 +22,6 @@ from shape_generator import (generate_cube, generate_sphere, generate_hollow_she
                              generate_material_sampler)
 from procedural_buildings import (generate_building_2story, generate_building_lshape,
                                   generate_building_simple_house, generate_ground_plane, create_lod_version)
-from procedural_characters import (generate_humanoid, generate_mech_walker,
-                                   generate_simple_humanoid, generate_combat_mech)
 from procedural_tilesets import URBAN_RESIDENTIAL_TILESET
 
 class VoxelEditor(QMainWindow):
@@ -82,11 +79,6 @@ class VoxelEditor(QMainWindow):
         self.brush_panel = BrushPanel()
         self.brush_panel.brush_size_changed.connect(self.on_brush_size_changed)
         left_layout.addWidget(self.brush_panel)
-        
-        # Character generator panel
-        self.character_panel = CharacterGeneratorPanel()
-        self.character_panel.generate_requested.connect(self.on_character_generate)
-        left_layout.addWidget(self.character_panel)
         
         left_sidebar.setLayout(left_layout)
         main_layout.addWidget(left_sidebar)
@@ -224,14 +216,10 @@ class VoxelEditor(QMainWindow):
         
         generate_menu.addSeparator()
         
-        # Characters
-        humanoid_action = QAction("🧍 Character: Humanoid (6×16×4, 2m tall)", self)
-        humanoid_action.triggered.connect(self.generate_humanoid)
-        generate_menu.addAction(humanoid_action)
-        
-        mech_action = QAction("🤖 Character: Combat Mech (12×24×8, 3m tall)", self)
-        mech_action.triggered.connect(self.generate_mech)
-        generate_menu.addAction(mech_action)
+        # Character proxies (reuse armored cube workflow)
+        character_block_action = QAction("� Character Block (Armored Cube)", self)
+        character_block_action.triggered.connect(self.generate_character_block)
+        generate_menu.addAction(character_block_action)
         
         generate_menu.addSeparator()
         
@@ -570,13 +558,14 @@ class VoxelEditor(QMainWindow):
         print(f"   World Size: 16m × 0.25m × 16m")
         print(f"   Perfect for streets and terrain!")
     
-    def generate_humanoid(self):
-        """Generate humanoid character"""
+    def generate_character_block(self):
+        """Generate a character stand-in using the armored cube workflow"""
         import time
         start = time.time()
+        block_size = (12, 24, 12)
+        shell = 2
         
-        # Generate humanoid (6×16×4 - 2m tall)
-        self.voxels = generate_simple_humanoid(seed=None)
+        self.voxels = generate_armored_cube(size=block_size, shell_thickness=shell)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
         self.modified = True
@@ -586,40 +575,21 @@ class VoxelEditor(QMainWindow):
         voxel_count = np.count_nonzero(self.voxels)
         
         self.statusBar().showMessage(
-            f"✅ Generated humanoid character | "
+            f"✅ Generated armored character block | "
             f"Voxels: {voxel_count:,} | "
             f"Time: {elapsed:.2f}s"
         )
         
-        print(f"🧍 Humanoid Character Generated:")
+        print(f"🛡️ Character Block Generated:")
         print(f"   Grid: {self.grid_size} = {voxel_count:,} voxels")
-        print(f"   Height: 2.0m (16 voxels × 0.125m)")
+        print(f"   Size: {block_size[0]}×{block_size[1]}×{block_size[2]} (armored cube)")
+        
+        # Store generation state for re-run (size is fixed, seed unused)
+        self.last_generator = lambda seed=None: generate_armored_cube(size=block_size, shell_thickness=shell)
+        self.last_generator_name = "Armored Character Block"
+        self.last_seed = None
+        self.regenerate_action.setEnabled(True)
     
-    def generate_mech(self):
-        """Generate combat mech"""
-        import time
-        start = time.time()
-        
-        # Generate combat mech (12×24×8 - 3m tall)
-        self.voxels = generate_combat_mech(seed=None)
-        self.grid_size = self.voxels.shape
-        self.viewport.set_voxels(self.voxels)
-        self.modified = True
-        self.update_title()
-        
-        elapsed = time.time() - start
-        voxel_count = np.count_nonzero(self.voxels)
-        
-        self.statusBar().showMessage(
-            f"✅ Generated combat mech | "
-            f"Voxels: {voxel_count:,} | "
-            f"Time: {elapsed:.2f}s"
-        )
-        
-        print(f"🤖 Combat Mech Generated:")
-        print(f"   Grid: {self.grid_size} = {voxel_count:,} voxels")
-        print(f"   Height: 3.0m (24 voxels × 0.125m)")
-        
     def update_status(self):
         """Update status bar with live info"""
         if self.voxels is None:
@@ -721,63 +691,3 @@ class VoxelEditor(QMainWindow):
         
         print(f"✅ Re-generated {self.last_generator_name} with new variation")
     
-    def on_character_generate(self, params):
-        """Handle character generation from character panel"""
-        print(f"🤖 Generating character with seed: {params['seed']}")
-        
-        # Prepare locked_parts parameter for generator
-        locked_parts_param = None
-        if any(params.get('locked_parts', {}).values()):
-            locked_parts_param = {
-                'locks': params['locked_parts'],
-                'part_data': params.get('part_data', {})
-            }
-        
-        # Generate character with parameters
-        self.voxels = generate_humanoid(
-            height=params['height'],
-            body_material=params['body_material'],
-            head_material=params['head_material'],
-            limb_material=params['limb_material'],
-            armor_material=params['armor_material'],
-            seed=params['seed'],
-            locked_parts=locked_parts_param
-        )
-        
-        self.grid_size = self.voxels.shape
-        
-        # Extract part data for future locking
-        from procedural_characters import extract_character_parts
-        extracted_parts = extract_character_parts(self.voxels, params['height'])
-        
-        # Store part data back in character panel for next generation
-        for part_name, part_data in extracted_parts.items():
-            self.character_panel.part_data[part_name] = part_data
-        
-        # Update viewport
-        self.viewport.set_voxels(self.voxels)
-        
-        # Store generation state for Re-Generate button
-        self.last_generator = lambda seed: generate_humanoid(
-            height=params['height'],
-            body_material=params['body_material'],
-            head_material=params['head_material'],
-            limb_material=params['limb_material'],
-            armor_material=params['armor_material'],
-            seed=seed
-        )
-        self.last_generator_name = f"Humanoid (H={params['height']})"
-        self.last_seed = params['seed']
-        self.regenerate_action.setEnabled(True)
-        
-        # Mark as modified
-        self.modified = True
-        self.update_title()
-        self.update_status()
-        
-        locked_count = sum(1 for locked in params.get('locked_parts', {}).values() if locked)
-        if locked_count > 0:
-            locked_parts_list = [name for name, locked in params['locked_parts'].items() if locked]
-            print(f"✅ Generated character with locked: {', '.join(locked_parts_list)}")
-        else:
-            print(f"✅ Generated new character: {self.grid_size[0]}×{self.grid_size[1]}×{self.grid_size[2]} voxels")

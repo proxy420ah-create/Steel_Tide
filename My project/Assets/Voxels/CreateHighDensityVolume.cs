@@ -46,13 +46,13 @@ namespace SteelTide.Tools
                         }
                         else if (dist > 12f)
                         {
-                            // Middle layer: Steel (tan)
-                            material = MaterialId.Steel;
+                            // Middle layer: Durasteel (blue-gray reinforced metal)
+                            material = MaterialId.Durasteel;
                         }
                         else if (dist > 6f)
                         {
-                            // Inner layer: Chobham Armor (brown)
-                            material = MaterialId.ChobhamArmor;
+                            // Inner layer: Reactive Armor (advanced protection)
+                            material = MaterialId.ReactiveArmor;
                         }
                         else
                         {

@@ -216,20 +216,20 @@ namespace SteelTide.Prototype
         private void BuildMaterialTables()
         {
             _densityById = new NativeArray<float>(MaterialId.Count, Allocator.Persistent);
-            _densityById[MaterialId.Air]          = 0f;
-            _densityById[MaterialId.EnergyShield] = 12f;
-            _densityById[MaterialId.ChobhamArmor] = 40f;
-            _densityById[MaterialId.Concrete]     = 18f;
-            _densityById[MaterialId.Flesh]        = 6f;
-            _densityById[MaterialId.Steel]        = 30f;
+            _densityById[MaterialId.Air]             = 0f;
+            _densityById[MaterialId.AblativePlating] = 12f;
+            _densityById[MaterialId.ReactiveArmor]   = 40f;
+            _densityById[MaterialId.Concrete]        = 18f;
+            _densityById[MaterialId.Flesh]           = 6f;
+            _densityById[MaterialId.Durasteel]       = 30f;
 
             _shreddableById = new NativeArray<bool>(MaterialId.Count, Allocator.Persistent);
-            _shreddableById[MaterialId.Air]          = false;
-            _shreddableById[MaterialId.EnergyShield] = true;
-            _shreddableById[MaterialId.ChobhamArmor] = true;
-            _shreddableById[MaterialId.Concrete]     = true;
-            _shreddableById[MaterialId.Flesh]        = true;
-            _shreddableById[MaterialId.Steel]        = true;
+            _shreddableById[MaterialId.Air]             = false;
+            _shreddableById[MaterialId.AblativePlating] = true;
+            _shreddableById[MaterialId.ReactiveArmor]   = true;
+            _shreddableById[MaterialId.Concrete]        = true;
+            _shreddableById[MaterialId.Flesh]           = true;
+            _shreddableById[MaterialId.Durasteel]       = true;
         }
 
         private int Index(int x, int y, int z) =>

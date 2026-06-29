@@ -78,6 +78,9 @@ namespace SteelTide.Voxels
             asset.Dispose();
             
             Debug.Log($"[VoxelObject] Loaded {assetFileName}: {volumeDims.x}×{volumeDims.y}×{volumeDims.z} = {voxelData.Length:N0} voxels");
+            
+            // DIAGNOSTIC: Sample some voxels to verify data integrity
+            Debug.Log($"[VoxelObject] Sample voxels: [0,0,0]={GetVoxel(0,0,0)}, [0,5,0]={GetVoxel(0,5,0)}, [0,10,0]={GetVoxel(0,10,0)}, [0,15,0]={GetVoxel(0,15,0)}");
         }
         
         void CreateComputeBuffer()

@@ -39,12 +39,12 @@ def load_stasset(filepath):
         if len(voxel_bytes) != count * 2:
             raise ValueError(f"Truncated file! Expected {count * 2} bytes, got {len(voxel_bytes)}")
         
-        # Convert to numpy array (little-endian uint16)
+        # Convert to numpy array (little-endian uint16) using X-major order
         voxels = np.frombuffer(voxel_bytes, dtype='<u2')
-        voxels = voxels.reshape((width, height, depth))
+        voxels = voxels.reshape((width, height, depth), order='F')
         
-        # CRITICAL: Make a writable copy (frombuffer creates read-only view)
-        voxels = voxels.copy()
+        # CRITICAL: Make a writable C-contiguous copy for editing
+        voxels = voxels.copy(order='C')
         
     print(f"✅ Loaded {filepath}")
     print(f"   Dimensions: {width}×{height}×{depth}")
@@ -74,8 +74,9 @@ def save_stasset(filepath, voxels):
         f.write(struct.pack('<H', dims[2])) # Depth
         f.write(struct.pack('<I', 0))       # Reserved (4 bytes)
         
-        # Voxel data (little-endian uint16)
-        voxel_data = voxels.flatten().astype('<u2')
+        # Voxel data (little-endian uint16) with X-major ordering
+        voxel_array = np.asarray(voxels, dtype='<u2', order='F')
+        voxel_data = voxel_array.ravel(order='F')
         f.write(voxel_data.tobytes())
     
     count = dims[0] * dims[1] * dims[2]

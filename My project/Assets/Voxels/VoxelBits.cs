@@ -43,29 +43,37 @@ namespace SteelTide.Voxels
     public static class MaterialId
     {
         // Primary Materials (0-5)
-        public const ushort Air          = 0;
-        public const ushort EnergyShield  = 1;
-        public const ushort ChobhamArmor  = 2;
-        public const ushort Concrete      = 3;
-        public const ushort Flesh         = 4;
-        public const ushort Steel         = 5;
+        public const ushort Air             = 0;
+        public const ushort PrefabComposite = 1;
+        public const ushort RegolithConcrete= 2;
+        public const ushort Concrete        = 3;
+        public const ushort Flesh           = 4;
+        public const ushort Durasteel       = 5;
         
         // Terrain Materials (6-10)
-        public const ushort Dirt          = 6;
-        public const ushort Grass         = 7;
-        public const ushort Stone         = 8;
-        public const ushort Wood          = 9;
-        public const ushort Glass         = 10;
+        public const ushort Regolith        = 6;
+        public const ushort Xenoflora       = 7;
+        public const ushort Basalt          = 8;
+        public const ushort Wood            = 9;
+        public const ushort TransparentAluminum = 10;
         
         // Clothing/Organic (11-12)
-        public const ushort Uniform       = 11;
+        public const ushort Uniform         = 11;
+        public const ushort Reserved        = 12;
         
         // Damaged states (13-15)
         public const ushort DamagedConcrete = 13;
         public const ushort DamagedSteel    = 14;
         public const ushort DamagedArmor    = 15;
 
-        public const int Count = 16;
+        // Advanced materials (16-20)
+        public const ushort AblativePlating = 16;
+        public const ushort ReactiveArmor   = 17;
+        public const ushort FoamCrete       = 18;
+        public const ushort NanomeshFabric  = 19;
+        public const ushort PlasteelPanels  = 20;
+
+        public const int Count = 21;
     }
 
     /// <summary>Shape IDs (upper 4 bits).</summary>

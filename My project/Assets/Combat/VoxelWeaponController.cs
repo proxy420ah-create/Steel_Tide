@@ -290,9 +290,9 @@ namespace SteelTide.Combat
                             // 2nd hit: Damaged → Air (hole carved)
                             newMat = Voxels.MaterialId.Air;
                         }
-                        else if (mat == Voxels.MaterialId.Steel)
+                        else if (mat == Voxels.MaterialId.Durasteel)
                         {
-                            // 1st hit: Steel → Damaged Steel (orange)
+                            // 1st hit: Durasteel → Damaged Steel (orange)
                             newMat = Voxels.MaterialId.DamagedSteel;
                         }
                         else if (mat == Voxels.MaterialId.DamagedSteel)
@@ -300,9 +300,9 @@ namespace SteelTide.Combat
                             // 2nd hit: Damaged Steel → Air
                             newMat = Voxels.MaterialId.Air;
                         }
-                        else if (mat == Voxels.MaterialId.ChobhamArmor)
+                        else if (mat == Voxels.MaterialId.ReactiveArmor)
                         {
-                            // 1st hit: Armor → Damaged Armor
+                            // 1st hit: Reactive Armor → Damaged Armor
                             newMat = Voxels.MaterialId.DamagedArmor;
                         }
                         else if (mat == Voxels.MaterialId.DamagedArmor)
@@ -465,14 +465,23 @@ namespace SteelTide.Combat
         
         private void ApplyDamageToVolume(Voxels.VoxelObject vol, int3 centerVoxel, ushort currentMaterial)
         {
+            Unity.Mathematics.int3 dims = vol.GetVolumeDims();
+            
             // Apply damage in radius around hit point
-            for (int z = -damageRadius; z <= damageRadius; z++)
+            for (int x = -damageRadius; x <= damageRadius; x++)
             {
                 for (int y = -damageRadius; y <= damageRadius; y++)
                 {
-                    for (int x = -damageRadius; x <= damageRadius; x++)
+                    for (int z = -damageRadius; z <= damageRadius; z++)
                     {
                         int3 voxel = centerVoxel + new int3(x, y, z);
+                        
+                        // Bounds check
+                        if (voxel.x < 0 || voxel.x >= dims.x ||
+                            voxel.y < 0 || voxel.y >= dims.y ||
+                            voxel.z < 0 || voxel.z >= dims.z)
+                            continue;
+                        
                         ushort mat = vol.GetVoxel(voxel.x, voxel.y, voxel.z);
                         
                         if (mat == Voxels.MaterialId.Air)
@@ -489,7 +498,7 @@ namespace SteelTide.Combat
                         {
                             newMat = Voxels.MaterialId.Air;
                         }
-                        else if (mat == Voxels.MaterialId.Steel)
+                        else if (mat == Voxels.MaterialId.Durasteel)
                         {
                             newMat = Voxels.MaterialId.DamagedSteel;
                         }
@@ -508,7 +517,7 @@ namespace SteelTide.Combat
                 }
             }
             
-            Debug.Log($"[VoxelWeaponController] Applied damage to {vol.gameObject.name} at {centerVoxel}");
+            Debug.Log($"[VoxelWeaponController] Applied damage to {vol.gameObject.name} at {centerVoxel} (radius: {damageRadius})");
         }
     }
 }
