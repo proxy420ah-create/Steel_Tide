@@ -28,6 +28,17 @@ namespace SteelTide.Voxels
         [Header("Multi-Volume System")]
         private List<VoxelObject> _registeredVolumes = new List<VoxelObject>();
         
+        [Header("Proxy Box Raymarch")]
+        [Tooltip("When enabled, renders the first registered volume with the proxy-box fragment shader to validate SV_Depth output.")]
+        public bool useProxyRaymarchPhase1 = false;
+        [Tooltip("Renders every registered volume via proxy-box raymarching (Phase 2). Ignores the compute path while enabled.")]
+        public bool useProxyRaymarchPhase2 = false;
+        [Tooltip("Shader used for the proxy-box raymarch path. Defaults to SteelTide/Voxels/VoxelProxyRaymarch if left empty.")]
+        public Shader proxyRaymarchShader;
+        private Material _proxyMaterial;
+        private Mesh _proxyCubeMesh;
+        private MaterialPropertyBlock _proxyPropertyBlock;
+
         [Header("Debug")]
         public bool showDebugInfo = true;
 
@@ -87,6 +98,15 @@ namespace SteelTide.Voxels
                 return;
             }
             _kernelIndex = raymarchShader.FindKernel("CSRaymarch");
+
+            if (proxyRaymarchShader == null)
+            {
+                proxyRaymarchShader = Shader.Find("SteelTide/Voxels/VoxelProxyRaymarch");
+            }
+            if (proxyRaymarchShader != null)
+            {
+                _proxyMaterial = new Material(proxyRaymarchShader);
+            }
         }
         
         private void ClearRenderTargets()
@@ -134,6 +154,16 @@ namespace SteelTide.Voxels
             if (camera != _camera)
                 return;
 
+            if (useProxyRaymarchPhase2 && TryRenderProxyPhase2(context, camera))
+            {
+                return;
+            }
+
+            if (useProxyRaymarchPhase1 && TryRenderProxyPhase1(context, camera))
+            {
+                return;
+            }
+
             // Ensure buffers match current resolution
             if (_output == null || _output.width != camera.pixelWidth || _output.height != camera.pixelHeight)
                 InitializeBuffers();
@@ -147,14 +177,6 @@ namespace SteelTide.Voxels
             // Blit color output
             cmd.Blit(_output, camera.activeTexture);
             
-            // TODO: Depth buffer integration for proper occlusion
-            // The compute shader writes depth to _depth RenderTexture, but we need
-            // to convert this to actual Z-buffer writes. Options:
-            // 1. Use a depth-writing shader pass after raymarch
-            // 2. Modify the raymarch to output depth in a format Unity can use
-            // 3. Use Graphics.SetRenderTarget with depth attachment
-            // For now, voxels may not properly occlude background geometry
-            
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
         }
@@ -167,10 +189,7 @@ namespace SteelTide.Voxels
             _output.enableRandomWrite = true;
             _output.Create();
 
-            if (_colorBuffer != null) _colorBuffer.Release();
-            _materialCount = materialColors?.Length ?? 0;
-            _colorBuffer = new ComputeBuffer(Mathf.Max(_materialCount, 1), sizeof(float) * 4);
-            _colorBuffer.SetData(materialColors);
+            EnsureColorBuffer();
 
             if (_depth != null) _depth.Release();
             _depth = new RenderTexture(_camera.pixelWidth, _camera.pixelHeight, 0,
@@ -255,6 +274,182 @@ namespace SteelTide.Voxels
             }
             
             _hasLoggedParams = true;
+        }
+
+        private void EnsureColorBuffer()
+        {
+            int desiredCount = materialColors?.Length ?? 0;
+            if (desiredCount <= 0)
+            {
+                desiredCount = 1;
+            }
+
+            bool lengthChanged = _colorBuffer == null || _materialCount != (materialColors?.Length ?? 0);
+
+            if (lengthChanged)
+            {
+                if (_colorBuffer != null)
+                {
+                    _colorBuffer.Release();
+                }
+
+                _materialCount = materialColors?.Length ?? 0;
+                _colorBuffer = new ComputeBuffer(Mathf.Max(_materialCount, 1), sizeof(float) * 4);
+                if (materialColors != null && materialColors.Length > 0)
+                {
+                    _colorBuffer.SetData(materialColors);
+                }
+                else
+                {
+                    Color[] fallback = new Color[] { Color.black };
+                    _colorBuffer.SetData(fallback);
+                }
+            }
+            else if (materialColors != null && materialColors.Length > 0)
+            {
+                _colorBuffer.SetData(materialColors);
+            }
+        }
+
+        private bool TryRenderProxyPhase1(ScriptableRenderContext context, Camera camera)
+        {
+            if (_registeredVolumes.Count == 0)
+                return false;
+
+            if (_proxyMaterial == null)
+                return false;
+
+            VoxelObject vol = _registeredVolumes[0];
+            if (vol == null || vol.GetVoxelBuffer() == null)
+                return false;
+
+            EnsureColorBuffer();
+            EnsureProxyResources();
+            if (_proxyCubeMesh == null)
+                return false;
+
+            if (_proxyPropertyBlock == null)
+            {
+                _proxyPropertyBlock = new MaterialPropertyBlock();
+            }
+            else
+            {
+                _proxyPropertyBlock.Clear();
+            }
+
+            Unity.Mathematics.int3 dims = vol.GetVolumeDims();
+            Vector3 dimsVec = new Vector3(dims.x, dims.y, dims.z);
+            float voxelSize = vol.GetVoxelSize();
+            Vector3 volumeOrigin = vol.GetVolumeOffset();
+
+            _proxyPropertyBlock.SetBuffer("_VoxelData", vol.GetVoxelBuffer());
+            _proxyPropertyBlock.SetBuffer("_MaterialColors", _colorBuffer);
+            _proxyPropertyBlock.SetInt("_MaterialCount", _materialCount);
+            _proxyPropertyBlock.SetVector("_VolumeDims", new Vector4(dims.x, dims.y, dims.z, 0f));
+            _proxyPropertyBlock.SetFloat("_VoxelSize", voxelSize);
+            _proxyPropertyBlock.SetVector("_VolumeOrigin", volumeOrigin);
+            _proxyPropertyBlock.SetInt("_MaxSteps", maxSteps);
+            _proxyPropertyBlock.SetColor("_BackgroundColor", _camera.backgroundColor);
+
+            Vector3 scale = dimsVec * voxelSize;
+            Vector3 center = volumeOrigin + scale * 0.5f;
+            Matrix4x4 matrix = Matrix4x4.TRS(center, Quaternion.identity, scale);
+
+            // Use CommandBuffer to draw into the camera's render target
+            CommandBuffer cmd = CommandBufferPool.Get("VoxelProxyPhase1");
+            cmd.DrawMesh(
+                _proxyCubeMesh,
+                matrix,
+                _proxyMaterial,
+                0,
+                0,
+                _proxyPropertyBlock
+            );
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+
+            if (showDebugInfo && !_hasLoggedParams)
+            {
+                Debug.Log("[VoxelRenderer] Phase 1 proxy draw issued for volume " + vol.gameObject.name);
+            }
+
+            _hasLoggedParams = true;
+            return true;
+        }
+
+        private bool TryRenderProxyPhase2(ScriptableRenderContext context, Camera camera)
+        {
+            if (_registeredVolumes.Count == 0)
+                return false;
+
+            if (_proxyMaterial == null)
+                return false;
+
+            EnsureColorBuffer();
+            EnsureProxyResources();
+            if (_proxyCubeMesh == null)
+                return false;
+
+            if (_proxyPropertyBlock == null)
+            {
+                _proxyPropertyBlock = new MaterialPropertyBlock();
+            }
+
+            CommandBuffer cmd = CommandBufferPool.Get("VoxelProxyPhase2");
+
+            for (int i = 0; i < _registeredVolumes.Count; i++)
+            {
+                VoxelObject vol = _registeredVolumes[i];
+                if (vol == null || vol.GetVoxelBuffer() == null)
+                    continue;
+
+                Unity.Mathematics.int3 dims = vol.GetVolumeDims();
+                Vector3 dimsVec = new Vector3(dims.x, dims.y, dims.z);
+                float voxelSize = vol.GetVoxelSize();
+                Vector3 volumeOrigin = vol.GetVolumeOffset();
+
+                _proxyPropertyBlock.Clear();
+                _proxyPropertyBlock.SetBuffer("_VoxelData", vol.GetVoxelBuffer());
+                _proxyPropertyBlock.SetBuffer("_MaterialColors", _colorBuffer);
+                _proxyPropertyBlock.SetInt("_MaterialCount", _materialCount);
+                _proxyPropertyBlock.SetVector("_VolumeDims", new Vector4(dims.x, dims.y, dims.z, 0f));
+                _proxyPropertyBlock.SetFloat("_VoxelSize", voxelSize);
+                _proxyPropertyBlock.SetVector("_VolumeOrigin", volumeOrigin);
+                _proxyPropertyBlock.SetInt("_MaxSteps", maxSteps);
+                _proxyPropertyBlock.SetColor("_BackgroundColor", _camera.backgroundColor);
+
+                Vector3 scale = dimsVec * voxelSize;
+                Vector3 center = volumeOrigin + scale * 0.5f;
+                Matrix4x4 matrix = Matrix4x4.TRS(center, Quaternion.identity, scale);
+
+                cmd.DrawMesh(
+                    _proxyCubeMesh,
+                    matrix,
+                    _proxyMaterial,
+                    0,
+                    0,
+                    _proxyPropertyBlock
+                );
+
+                if (showDebugInfo && !_hasLoggedParams)
+                {
+                    Debug.Log($"[VoxelRenderer] Phase 2 proxy draw issued for volume {vol.gameObject.name}");
+                }
+            }
+
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+
+            _hasLoggedParams = true;
+            return true;
+        }
+
+        private void EnsureProxyResources()
+        {
+            if (_proxyCubeMesh == null)
+            {
+                _proxyCubeMesh = Resources.GetBuiltinResource<Mesh>("Cube.fbx");
+            }
         }
 
         // Gizmos now drawn by individual VoxelObjects
