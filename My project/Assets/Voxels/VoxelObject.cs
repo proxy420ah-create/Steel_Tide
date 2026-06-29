@@ -25,6 +25,10 @@ namespace SteelTide.Voxels
         // Voxel data
         private ushort[] voxelData;
         private ComputeBuffer voxelBuffer;
+
+        // World registration context
+        private VoxelWorld _voxelWorld;
+        private Vector3Int _worldGridOrigin;
         
         void Start()
         {
@@ -37,9 +41,9 @@ namespace SteelTide.Voxels
         void RegisterWithVoxelWorld()
         {
             // Register voxel data with VoxelWorld for collision detection
-            VoxelWorld voxelWorld = VoxelWorld.Instance;
+            _voxelWorld = VoxelWorld.Instance;
             
-            if (voxelWorld == null)
+            if (_voxelWorld == null)
             {
                 Debug.LogWarning($"[VoxelObject] {gameObject.name}: VoxelWorld not found. Collision detection will not work.");
                 return;
@@ -52,7 +56,8 @@ namespace SteelTide.Voxels
             }
             
             Debug.Log($"[VoxelObject] {gameObject.name}: Registering with VoxelWorld...");
-            voxelWorld.RegisterVoxelObject(transform.position, assetFileName, voxelSize);
+            _voxelWorld.RegisterVoxelObject(transform.position, assetFileName, voxelSize);
+            _worldGridOrigin = _voxelWorld.WorldToVoxelGrid(transform.position);
             Debug.Log($"[VoxelObject] {gameObject.name}: Successfully registered with VoxelWorld!");
         }
         
@@ -196,6 +201,10 @@ namespace SteelTide.Voxels
             if (index >= 0 && index < voxelData.Length)
             {
                 voxelData[index] = value;
+                
+                // Sync to VoxelWorld for physics/collision detection
+                SyncVoxelToWorld(x, y, z, value);
+                
                 if (_batchUpdateDepth == 0)
                 {
                     UploadToGPU();
@@ -206,6 +215,24 @@ namespace SteelTide.Voxels
         public void SetVoxel(Unity.Mathematics.int3 voxel, ushort value)
         {
             SetVoxel(voxel.x, voxel.y, voxel.z, value);
+        }
+        
+        /// <summary>
+        /// Sync a local voxel change to VoxelWorld's physics dictionary.
+        /// Called after updating voxelData to keep collision detection in sync.
+        /// </summary>
+        private void SyncVoxelToWorld(int x, int y, int z, ushort value)
+        {
+            if (_voxelWorld == null) return;
+            
+            // Translate local voxel coords to world grid coords
+            Vector3Int worldGridPos = _worldGridOrigin + new Vector3Int(x, y, z);
+            
+            // Extract material ID from packed voxel value
+            byte material = (byte)(value & VoxelBits.MaterialMask);
+            
+            // Notify VoxelWorld (removes from dictionary if material is Air)
+            _voxelWorld.SetVoxel(worldGridPos, material);
         }
         
         /// <summary>

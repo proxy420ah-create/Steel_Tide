@@ -48,6 +48,9 @@ namespace SteelTide.Player
         {
             _controller = GetComponent<CharacterController>();
             
+            // Configure CharacterController for voxel precision
+            _controller.skinWidth = 0.01f;  // Reduce skin width to allow falling through holes
+            
             // Auto-find camera if not assigned
             if (cameraTransform == null)
             {
@@ -156,14 +159,26 @@ namespace SteelTide.Player
             Vector3 direction = Vector3.down;
             float distance = (_controller.height / 2f) + groundCheckDistance;
             
-            // Sample multiple points around player cylinder
+            // CRITICAL: Check center first (detects holes directly beneath player)
+            if (Physics.Raycast(origin, direction, distance, voxelLayer))
+            {
+                if (showDebugRays)
+                    Debug.DrawRay(origin, direction * distance, Color.green);
+                return true;
+            }
+            
+            if (showDebugRays)
+                Debug.DrawRay(origin, direction * distance, Color.red);
+            
+            // Sample multiple points around player cylinder edge
+            // Use full radius (not 0.5x) to match CharacterController collision shape
             for (int i = 0; i < raycastSamples; i++)
             {
                 float angle = (i / (float)raycastSamples) * Mathf.PI * 2f;
                 Vector3 offset = new Vector3(
-                    Mathf.Cos(angle) * playerRadius * 0.5f,
+                    Mathf.Cos(angle) * _controller.radius,
                     0f,
-                    Mathf.Sin(angle) * playerRadius * 0.5f
+                    Mathf.Sin(angle) * _controller.radius
                 );
                 
                 Vector3 rayOrigin = origin + offset;
@@ -247,6 +262,23 @@ namespace SteelTide.Player
                 transform.position - Vector3.up * (_controller.height / 2f),
                 transform.position + Vector3.up * (_controller.height / 2f)
             );
+            
+            // Draw CharacterController capsule (actual collision shape)
+            if (_controller != null)
+            {
+                Gizmos.color = Color.yellow;
+                float radius = _controller.radius;
+                float height = _controller.height;
+                Vector3 center = transform.position + _controller.center;
+                
+                // Draw capsule outline
+                Gizmos.DrawWireSphere(center + Vector3.up * (height / 2f - radius), radius);
+                Gizmos.DrawWireSphere(center - Vector3.up * (height / 2f - radius), radius);
+                
+                // Draw skin width buffer (the problem zone!)
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireSphere(center - Vector3.up * (height / 2f - radius), radius + _controller.skinWidth);
+            }
         }
     }
 }
