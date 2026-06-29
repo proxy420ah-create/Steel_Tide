@@ -14,7 +14,9 @@ print("✅ Using pyqtgraph viewport (fast and reliable)")
     
 from tool_panel import ToolPanel
 from brush_panel import BrushPanel
+from reference_panel import ReferenceModelPanel
 from settings_dialog import SettingsDialog
+from mouse_config_dialog import MouseConfigDialog
 from stasset_io import load_stasset, save_stasset
 from shape_generator import (generate_cube, generate_sphere, generate_hollow_shell, generate_test_cube,
                              generate_armored_cube, generate_armored_sphere, generate_armored_cylinder,
@@ -83,10 +85,15 @@ class VoxelEditor(QMainWindow):
         left_sidebar.setLayout(left_layout)
         main_layout.addWidget(left_sidebar)
         
-        # Right: 3D viewport
+        # Center: 3D viewport
         self.viewport = VoxelViewport()
         self.viewport.voxel_clicked.connect(self.on_voxel_clicked)
         main_layout.addWidget(self.viewport, stretch=1)
+        
+        # Right sidebar: Reference models panel
+        self.reference_panel = ReferenceModelPanel(self.viewport.reference_library)
+        self.reference_panel.reference_toggled.connect(self.viewport.toggle_reference_model)
+        main_layout.addWidget(self.reference_panel)
         
         central.setLayout(main_layout)
         self.setCentralWidget(central)
@@ -240,6 +247,10 @@ class VoxelEditor(QMainWindow):
         settings_action.triggered.connect(self.open_settings)
         options_menu.addAction(settings_action)
         
+        mouse_config_action = QAction("🖱️ Mouse Controls...", self)
+        mouse_config_action.triggered.connect(self.open_mouse_config)
+        options_menu.addAction(mouse_config_action)
+        
     def load_asset(self, filepath):
         """Load .stasset file"""
         try:
@@ -334,6 +345,12 @@ class VoxelEditor(QMainWindow):
             self.settings.update(new_settings)
             self.apply_settings()
             self.statusBar().showMessage("✅ Settings updated")
+    
+    def open_mouse_config(self):
+        """Open mouse configuration dialog"""
+        dialog = MouseConfigDialog(self.viewport.mouse_config, self)
+        dialog.config_changed.connect(self.viewport.update_mouse_config)
+        dialog.exec()
     
     def apply_settings(self):
         """Apply current settings to viewport"""

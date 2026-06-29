@@ -17,13 +17,6 @@ public class VoxelModifier : MonoBehaviour
     [Tooltip("Destruction radius (1 = single voxel, 2 = 3x3x3 cube, etc.)")]
     public int destructionRadius = 1;
     
-    [Header("Input")]
-    [Tooltip("Key to destroy voxel")]
-    public KeyCode destroyKey = KeyCode.Mouse0; // Left Click
-    
-    [Tooltip("Key to place voxel")]
-    public KeyCode placeKey = KeyCode.Mouse1; // Right Click
-    
     [Header("Visual Feedback")]
     [Tooltip("Show crosshair in center of screen")]
     public bool showCrosshair = true;

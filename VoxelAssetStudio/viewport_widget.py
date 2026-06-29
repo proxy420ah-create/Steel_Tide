@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QLabel
 import numpy as np
 from material_library import get_material_color, get_material_name
 import pyqtgraph.opengl as gl
+from reference_models import ReferenceModelLibrary
 
 class VoxelViewport(GLViewWidget):
     """3D viewport for rendering and interacting with voxels"""
@@ -26,7 +27,11 @@ class VoxelViewport(GLViewWidget):
         self.mouse_config = {
             "orbit": "Right Button",
             "pan": "Middle Button",
-            "paint": "Left Button"
+            "paint": "Left Button",
+            "orbit_sensitivity": 1.0,
+            "pan_sensitivity": 1.0,
+            "zoom_sensitivity": 1.0,
+            "keyboard_sensitivity": 1.0
         }
         self.noRepeatKeys = []
         
@@ -62,6 +67,11 @@ class VoxelViewport(GLViewWidget):
         # Rendering
         self.voxel_plot = None  # Scatter plot for all voxels
         self.hover_highlight = None  # Highlight for voxel under cursor
+        
+        # Reference models
+        self.reference_library = ReferenceModelLibrary()
+        self.reference_plots = {}  # name -> GLScatterPlotItem
+        self._render_reference_models()
         
         # Voxel coordinate mapping (for mouse picking)
         self.voxel_coords = []  # List of (x,y,z) tuples matching scatter plot order
@@ -205,6 +215,77 @@ class VoxelViewport(GLViewWidget):
         self.addItem(self.voxel_plot)
         
         print(f"✅ Rendered {len(coords):,} voxels (fast mode)")
+    
+    def _render_reference_models(self):
+        """Render all visible reference models in the scene"""
+        # Clear existing reference plots
+        for plot in self.reference_plots.values():
+            self.removeItem(plot)
+        self.reference_plots.clear()
+        
+        # Render each visible model
+        for model in self.reference_library.get_visible_models():
+            coords = []
+            colors = []
+            
+            # Convert voxels to world coordinates
+            for x in range(model.voxels.shape[0]):
+                for y in range(model.voxels.shape[1]):
+                    for z in range(model.voxels.shape[2]):
+                        if model.voxels[x, y, z] != 0:  # Not air
+                            # Transform to world position
+                            world_x = model.position[0] + x * self.voxel_size
+                            world_y = model.position[2] + z * self.voxel_size  # Y/Z swap
+                            world_z = model.position[1] + y * self.voxel_size  # Y/Z swap
+                            
+                            coords.append([world_x, world_y, world_z])
+                            
+                            # Semi-transparent yellow tint
+                            color = list(model.color_tint) + [model.opacity]
+                            colors.append(color)
+            
+            if coords:
+                coords = np.array(coords)
+                colors = np.array(colors)
+                
+                # Create scatter plot for this reference model
+                plot = GLScatterPlotItem(
+                    pos=coords,
+                    color=colors,
+                    size=self.voxel_size,
+                    pxMode=False,
+                    glOptions='translucent'  # Enable transparency
+                )
+                
+                # Use cube mesh (same as main voxels)
+                verts = np.array([
+                    [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
+                    [-0.5, -0.5,  0.5], [0.5, -0.5,  0.5], [0.5, 0.5,  0.5], [-0.5, 0.5,  0.5],
+                ], dtype=float)
+                
+                faces = np.array([
+                    [0,1,2], [0,2,3], [4,6,5], [4,7,6],
+                    [0,4,5], [0,5,1], [2,6,7], [2,7,3],
+                    [0,3,7], [0,7,4], [1,5,6], [1,6,2],
+                ], dtype=np.uint32)
+                
+                cube_mesh = MeshData(vertexes=verts, faces=faces)
+                plot.setData(pos=coords, color=colors, size=self.voxel_size, pxMode=False)
+                plot.mesh = cube_mesh
+                plot.meshdata = cube_mesh
+                
+                self.addItem(plot)
+                self.reference_plots[model.name] = plot
+        
+        if self.reference_plots:
+            print(f"📏 Rendered {len(self.reference_plots)} reference models")
+    
+    def toggle_reference_model(self, name, visible):
+        """Show/hide a specific reference model"""
+        model = self.reference_library.get_model_by_name(name)
+        if model:
+            model.visible = visible
+            self._render_reference_models()
         
     def update_voxel(self, x, y, z, material_id):
         """Update voxel(s) based on brush size"""
@@ -518,6 +599,15 @@ class VoxelViewport(GLViewWidget):
             self._clear_hover_highlight()
         print(f"🎨 Hover highlight: {'ON' if enabled else 'OFF'}")
     
+    def update_mouse_config(self, config):
+        """Update mouse configuration including sensitivity"""
+        self.mouse_config.update(config)
+        print(f"🖱️ Mouse config updated:")
+        print(f"   Orbit: {config.get('orbit_sensitivity', 1.0):.1f}x")
+        print(f"   Pan: {config.get('pan_sensitivity', 1.0):.1f}x")
+        print(f"   Zoom: {config.get('zoom_sensitivity', 1.0):.1f}x")
+        print(f"   Keyboard (WASD): {config.get('keyboard_sensitivity', 1.0):.1f}x")
+    
     def set_brush_size(self, size):
         """Set brush size for painting"""
         self.brush_size = max(1, min(10, size))
@@ -700,9 +790,10 @@ class VoxelViewport(GLViewWidget):
         if Qt.Key.Key_E in self.keys_pressed:
             movement += up  # Move up (camera-relative)
         
-        # Normalize diagonal movement
+        # Normalize diagonal movement and apply keyboard sensitivity
         if np.linalg.norm(movement) > 0:
-            movement = movement / np.linalg.norm(movement) * self.pan_speed
+            keyboard_mult = self.mouse_config.get('keyboard_sensitivity', 1.0)
+            movement = movement / np.linalg.norm(movement) * self.pan_speed * keyboard_mult
         
         # Apply movement based on camera mode
         # For now, both modes move the center point

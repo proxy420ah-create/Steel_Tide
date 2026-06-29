@@ -5,6 +5,7 @@
 // Handles shooting, crosshair, and weapon feedback.
 
 using UnityEngine;
+using UnityEngine.InputSystem;
 using SteelTide.Combat;
 
 namespace SteelTide.Player
@@ -68,8 +69,9 @@ namespace SteelTide.Player
             if (Time.time - _lastFireTime < fireRate)
                 return;
             
-            // Check for fire input
-            if (Input.GetMouseButton(0))  // Left mouse button
+            // Check for fire input (new Input System)
+            var mouse = Mouse.current;
+            if (mouse != null && mouse.leftButton.isPressed)
             {
                 Fire();
                 _lastFireTime = Time.time;

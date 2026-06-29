@@ -467,6 +467,9 @@ namespace SteelTide.Combat
         {
             Unity.Mathematics.int3 dims = vol.GetVolumeDims();
             
+            // Use global damage queue for thread-safe multi-weapon scenarios
+            var damageQueue = VoxelDamageQueue.Instance;
+            
             // Apply damage in radius around hit point
             for (int x = -damageRadius; x <= damageRadius; x++)
             {
@@ -512,12 +515,13 @@ namespace SteelTide.Combat
                             newMat = Voxels.MaterialId.Air;
                         }
                         
-                        vol.SetVoxel(voxel, newMat);
+                        // Queue damage (will be applied in LateUpdate with all other damage this frame)
+                        damageQueue.QueueDamage(vol, voxel, newMat, VoxelDamageQueue.DamagePriority.Immediate);
                     }
                 }
             }
             
-            Debug.Log($"[VoxelWeaponController] Applied damage to {vol.gameObject.name} at {centerVoxel} (radius: {damageRadius})");
+            Debug.Log($"[VoxelWeaponController] Queued damage to {vol.gameObject.name} at {centerVoxel} (radius: {damageRadius})");
         }
     }
 }

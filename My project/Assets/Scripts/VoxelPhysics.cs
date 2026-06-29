@@ -55,6 +55,7 @@ public class VoxelPhysics : MonoBehaviour
     private Vector2 moveInput;
     private Vector2 lookInput;
     private bool jumpInput;
+    private bool jumpInputConsumed; // Track if jump was processed
     private bool sprintInput;
     
     private void Start()
@@ -107,8 +108,13 @@ public class VoxelPhysics : MonoBehaviour
             
             moveInput = new Vector2(horizontal, vertical);
             
-            // Jump input (Space)
-            jumpInput = keyboard.spaceKey.wasPressedThisFrame;
+            // Jump input (Space) - latch until consumed by FixedUpdate
+            if (keyboard.spaceKey.wasPressedThisFrame)
+            {
+                jumpInput = true;
+                jumpInputConsumed = false;
+                Debug.Log($"[VoxelPhysics] SPACE PRESSED! jumpInput latched, isGrounded={isGrounded}");
+            }
             
             // Sprint input (Shift)
             sprintInput = keyboard.leftShiftKey.isPressed;
@@ -196,10 +202,14 @@ public class VoxelPhysics : MonoBehaviour
         }
         
         // Handle jump
-        if (jumpInput && isGrounded)
+        if (jumpInput && !jumpInputConsumed && isGrounded)
         {
             velocity.y = jumpForce;
+            jumpInput = false; // Reset for next jump
+            jumpInputConsumed = true;
+            Debug.Log($"[VoxelPhysics] ✅ JUMP! velocity.y = {jumpForce}");
         }
+        // Jump blocked silently if not grounded (no spam)
     }
     
     private void ApplyMovement()

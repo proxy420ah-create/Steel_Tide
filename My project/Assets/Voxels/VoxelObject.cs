@@ -165,10 +165,29 @@ namespace SteelTide.Voxels
         
         public ushort GetVoxel(int x, int y, int z)
         {
+            // Safe to read during batch updates - we're only modifying CPU-side array
+            // GPU upload happens atomically at EndBatchUpdate()
             int index = x + y * volumeDims.x + z * volumeDims.x * volumeDims.y;
             if (index >= 0 && index < voxelData.Length)
                 return voxelData[index];
             return 0;
+        }
+        
+        private int _batchUpdateDepth = 0;
+        
+        public void BeginBatchUpdate()
+        {
+            _batchUpdateDepth++;
+        }
+        
+        public void EndBatchUpdate()
+        {
+            _batchUpdateDepth--;
+            if (_batchUpdateDepth <= 0)
+            {
+                _batchUpdateDepth = 0;
+                UploadToGPU();
+            }
         }
         
         public void SetVoxel(int x, int y, int z, ushort value)
@@ -177,13 +196,33 @@ namespace SteelTide.Voxels
             if (index >= 0 && index < voxelData.Length)
             {
                 voxelData[index] = value;
-                UploadToGPU();
+                if (_batchUpdateDepth == 0)
+                {
+                    UploadToGPU();
+                }
             }
         }
         
         public void SetVoxel(Unity.Mathematics.int3 voxel, ushort value)
         {
             SetVoxel(voxel.x, voxel.y, voxel.z, value);
+        }
+        
+        /// <summary>
+        /// Bulk voxel update for large-scale destruction (mech footsteps, explosions).
+        /// Automatically batches the upload.
+        /// </summary>
+        public void SetVoxelsBulk(System.Collections.Generic.List<(Unity.Mathematics.int3 pos, ushort mat)> updates)
+        {
+            if (updates == null || updates.Count == 0)
+                return;
+            
+            BeginBatchUpdate();
+            foreach (var (pos, mat) in updates)
+            {
+                SetVoxel(pos, mat);
+            }
+            EndBatchUpdate();
         }
         
         private void UploadToGPU()
