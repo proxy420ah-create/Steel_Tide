@@ -38,6 +38,44 @@ namespace SteelTide.Voxels
         private Material _proxyMaterial;
         private Mesh _proxyCubeMesh;
         private MaterialPropertyBlock _proxyPropertyBlock;
+        private bool _prevProxyPhase1;
+        private bool _prevProxyPhase2;
+
+        // Pool of per-volume property blocks reused each frame (one block per draw,
+        // since RenderGraph records all draws then executes them later).
+        private readonly List<MaterialPropertyBlock> _proxyBlockPool = new List<MaterialPropertyBlock>();
+
+        // Per-camera lookup so the VoxelRenderFeature can find the renderer that owns a camera.
+        private static readonly List<VoxelRenderer> s_activeRenderers = new List<VoxelRenderer>();
+
+        /// <summary>A single proxy-box draw (mesh + world matrix + per-volume properties).</summary>
+        public struct ProxyDrawItem
+        {
+            public Mesh mesh;
+            public Matrix4x4 matrix;
+            public MaterialPropertyBlock properties;
+        }
+
+        /// <summary>Material used by the Phase 2 proxy-box raymarch path.</summary>
+        public Material ProxyMaterial => _proxyMaterial;
+
+        /// <summary>True when the Phase 2 proxy path is enabled (drawn by VoxelRenderFeature).</summary>
+        public bool ProxyPhase2Enabled => useProxyRaymarchPhase2;
+
+        /// <summary>Find the VoxelRenderer that owns the given camera, or null.</summary>
+        public static VoxelRenderer GetForCamera(Camera cam)
+        {
+            if (cam == null)
+                return null;
+
+            for (int i = 0; i < s_activeRenderers.Count; i++)
+            {
+                VoxelRenderer r = s_activeRenderers[i];
+                if (r != null && r._camera == cam)
+                    return r;
+            }
+            return null;
+        }
 
         [Header("Debug")]
         public bool showDebugInfo = true;
@@ -87,6 +125,8 @@ namespace SteelTide.Voxels
         private Camera _camera;
         private int _kernelIndex;
         private bool _hasLoggedParams = false;
+        private enum RenderPath { None, Compute, ProxyPhase1, ProxyPhase2 }
+        private RenderPath _lastRenderPath = RenderPath.None;
 
         void Start()
         {
@@ -98,6 +138,14 @@ namespace SteelTide.Voxels
                 return;
             }
             _kernelIndex = raymarchShader.FindKernel("CSRaymarch");
+
+            EnsureProxyMaterial();
+        }
+
+        private void EnsureProxyMaterial()
+        {
+            if (_proxyMaterial != null)
+                return;
 
             if (proxyRaymarchShader == null)
             {
@@ -130,12 +178,23 @@ namespace SteelTide.Voxels
 
         void OnEnable()
         {
-            // Subscribe to Unity 6 URP rendering event
+            if (_camera == null)
+                _camera = GetComponent<Camera>();
+
+            // Register for per-camera lookup by VoxelRenderFeature.
+            if (!s_activeRenderers.Contains(this))
+                s_activeRenderers.Add(this);
+
+            // Subscribe to Unity 6 URP rendering event (Phase 1 / Compute legacy paths only).
             RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
+            _prevProxyPhase1 = useProxyRaymarchPhase1;
+            _prevProxyPhase2 = useProxyRaymarchPhase2;
         }
 
         void OnDisable()
         {
+            s_activeRenderers.Remove(this);
+
             // Unsubscribe to prevent memory leaks
             RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
         }
@@ -154,13 +213,22 @@ namespace SteelTide.Voxels
             if (camera != _camera)
                 return;
 
-            if (useProxyRaymarchPhase2 && TryRenderProxyPhase2(context, camera))
+            RenderPath currentPath = RenderPath.None;
+
+            // Phase 2 is drawn by VoxelRenderFeature (RenderGraph) so it composites
+            // correctly in the Game view with SSAO / post-processing / intermediate
+            // textures. Drawing here via endCameraRendering would be discarded by
+            // URP's final blit, so we only log the active path.
+            if (useProxyRaymarchPhase2)
             {
+                LogRenderPathIfChanged(RenderPath.ProxyPhase2);
                 return;
             }
 
             if (useProxyRaymarchPhase1 && TryRenderProxyPhase1(context, camera))
             {
+                currentPath = RenderPath.ProxyPhase1;
+                LogRenderPathIfChanged(currentPath);
                 return;
             }
 
@@ -170,6 +238,7 @@ namespace SteelTide.Voxels
 
             // Dispatch compute shader to generate raymarched output
             DispatchRaymarch();
+            currentPath = RenderPath.Compute;
 
             // Blit to camera's target using command buffer
             CommandBuffer cmd = CommandBufferPool.Get("VoxelRaymarch");
@@ -179,6 +248,32 @@ namespace SteelTide.Voxels
             
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
+
+            LogRenderPathIfChanged(currentPath);
+        }
+
+        void Update()
+        {
+            MonitorProxyToggle(ref _prevProxyPhase1, useProxyRaymarchPhase1, nameof(useProxyRaymarchPhase1));
+            MonitorProxyToggle(ref _prevProxyPhase2, useProxyRaymarchPhase2, nameof(useProxyRaymarchPhase2));
+        }
+
+        private void MonitorProxyToggle(ref bool previousValue, bool currentValue, string label)
+        {
+            if (previousValue == currentValue)
+                return;
+
+            previousValue = currentValue;
+            Debug.Log($"[VoxelRenderer] Toggle {label} changed → {currentValue}. (Phase1={useProxyRaymarchPhase1}, Phase2={useProxyRaymarchPhase2})", this);
+        }
+
+        private void LogRenderPathIfChanged(RenderPath currentPath)
+        {
+            if (_lastRenderPath == currentPath)
+                return;
+
+            _lastRenderPath = currentPath;
+            Debug.Log($"[VoxelRenderer] Render path now {currentPath}. (Phase1={useProxyRaymarchPhase1}, Phase2={useProxyRaymarchPhase2})", this);
         }
 
         private void InitializeBuffers()
@@ -377,11 +472,26 @@ namespace SteelTide.Voxels
             return true;
         }
 
-        private bool TryRenderProxyPhase2(ScriptableRenderContext context, Camera camera)
+        /// <summary>
+        /// Build the Phase 2 proxy-box draw items for the current frame.
+        /// Called by VoxelRenderFeature during RecordRenderGraph so the draws are
+        /// issued inside the URP pipeline (correct active color/depth targets).
+        /// Returns true if there is at least one item to draw.
+        /// </summary>
+        public bool BuildProxyPhase2DrawItems(List<ProxyDrawItem> items)
         {
+            if (items == null)
+                return false;
+
+            items.Clear();
+
+            if (!useProxyRaymarchPhase2)
+                return false;
+
             if (_registeredVolumes.Count == 0)
                 return false;
 
+            EnsureProxyMaterial();
             if (_proxyMaterial == null)
                 return false;
 
@@ -390,13 +500,9 @@ namespace SteelTide.Voxels
             if (_proxyCubeMesh == null)
                 return false;
 
-            if (_proxyPropertyBlock == null)
-            {
-                _proxyPropertyBlock = new MaterialPropertyBlock();
-            }
+            Color background = _camera != null ? _camera.backgroundColor : Color.clear;
 
-            CommandBuffer cmd = CommandBufferPool.Get("VoxelProxyPhase2");
-
+            int poolIndex = 0;
             for (int i = 0; i < _registeredVolumes.Count; i++)
             {
                 VoxelObject vol = _registeredVolumes[i];
@@ -408,28 +514,27 @@ namespace SteelTide.Voxels
                 float voxelSize = vol.GetVoxelSize();
                 Vector3 volumeOrigin = vol.GetVolumeOffset();
 
-                _proxyPropertyBlock.Clear();
-                _proxyPropertyBlock.SetBuffer("_VoxelData", vol.GetVoxelBuffer());
-                _proxyPropertyBlock.SetBuffer("_MaterialColors", _colorBuffer);
-                _proxyPropertyBlock.SetInt("_MaterialCount", _materialCount);
-                _proxyPropertyBlock.SetVector("_VolumeDims", new Vector4(dims.x, dims.y, dims.z, 0f));
-                _proxyPropertyBlock.SetFloat("_VoxelSize", voxelSize);
-                _proxyPropertyBlock.SetVector("_VolumeOrigin", volumeOrigin);
-                _proxyPropertyBlock.SetInt("_MaxSteps", maxSteps);
-                _proxyPropertyBlock.SetColor("_BackgroundColor", _camera.backgroundColor);
+                MaterialPropertyBlock block = GetPooledBlock(poolIndex++);
+                block.Clear();
+                block.SetBuffer("_VoxelData", vol.GetVoxelBuffer());
+                block.SetBuffer("_MaterialColors", _colorBuffer);
+                block.SetInt("_MaterialCount", _materialCount);
+                block.SetVector("_VolumeDims", new Vector4(dims.x, dims.y, dims.z, 0f));
+                block.SetFloat("_VoxelSize", voxelSize);
+                block.SetVector("_VolumeOrigin", volumeOrigin);
+                block.SetInt("_MaxSteps", maxSteps);
+                block.SetColor("_BackgroundColor", background);
 
                 Vector3 scale = dimsVec * voxelSize;
                 Vector3 center = volumeOrigin + scale * 0.5f;
                 Matrix4x4 matrix = Matrix4x4.TRS(center, Quaternion.identity, scale);
 
-                cmd.DrawMesh(
-                    _proxyCubeMesh,
-                    matrix,
-                    _proxyMaterial,
-                    0,
-                    0,
-                    _proxyPropertyBlock
-                );
+                items.Add(new ProxyDrawItem
+                {
+                    mesh = _proxyCubeMesh,
+                    matrix = matrix,
+                    properties = block
+                });
 
                 if (showDebugInfo && !_hasLoggedParams)
                 {
@@ -437,11 +542,17 @@ namespace SteelTide.Voxels
                 }
             }
 
-            context.ExecuteCommandBuffer(cmd);
-            CommandBufferPool.Release(cmd);
-
             _hasLoggedParams = true;
-            return true;
+            return items.Count > 0;
+        }
+
+        private MaterialPropertyBlock GetPooledBlock(int index)
+        {
+            while (_proxyBlockPool.Count <= index)
+            {
+                _proxyBlockPool.Add(new MaterialPropertyBlock());
+            }
+            return _proxyBlockPool[index];
         }
 
         private void EnsureProxyResources()
