@@ -94,6 +94,11 @@ class VoxelViewport(GLViewWidget):
         # Workspace volume wireframe (shows the editable numpy array bounds)
         self.workspace_volume_plot = None  # Wireframe showing grid_size bounds
         
+        # Skeleton overlay
+        self.skeleton_data = None  # Skeleton data (bones, joints)
+        self.skeleton_bone_plots = []  # List of GLLinePlotItem for bones
+        self.skeleton_joint_plots = []  # List of GLScatterPlotItem for joints
+        
         # Debug: Add axis compass (RGB = XYZ)
         self._add_axis_compass()
         
@@ -1353,3 +1358,73 @@ class VoxelViewport(GLViewWidget):
             glOptions='translucent'
         )
         self.addItem(self.shape_preview_plot)
+    
+    # ========== SKELETON OVERLAY RENDERING ==========
+    
+    def set_skeleton_overlay(self, skeleton_data):
+        """Show or hide skeleton overlay"""
+        self.skeleton_data = skeleton_data
+        self._render_skeleton_overlay()
+    
+    def _render_skeleton_overlay(self):
+        """Render skeleton bones and joints as overlay"""
+        # Clear existing skeleton plots
+        for plot in self.skeleton_bone_plots:
+            self.removeItem(plot)
+        for plot in self.skeleton_joint_plots:
+            self.removeItem(plot)
+        
+        self.skeleton_bone_plots = []
+        self.skeleton_joint_plots = []
+        
+        if self.skeleton_data is None:
+            return
+        
+        # Render bones as lines
+        for bone in self.skeleton_data['bones']:
+            start = bone['start']
+            end = bone['end']
+            
+            # Convert to world coordinates
+            start_world = self.voxel_to_world_coords(*start)
+            end_world = self.voxel_to_world_coords(*end)
+            
+            # Create line plot
+            line_data = np.array([start_world, end_world])
+            bone_plot = gl.GLLinePlotItem(
+                pos=line_data,
+                color=(1.0, 1.0, 0.0, 1.0),  # Yellow
+                width=3.0,
+                antialias=True
+            )
+            self.addItem(bone_plot)
+            self.skeleton_bone_plots.append(bone_plot)
+        
+        # Render joints as spheres
+        joint_positions = []
+        joint_colors = []
+        
+        for joint in self.skeleton_data['joints']:
+            pos = joint['position']
+            pos_world = self.voxel_to_world_coords(*pos)
+            joint_positions.append(pos_world)
+            
+            # Color by joint type (semi-transparent)
+            if joint['type'] == 'BALL':
+                joint_colors.append([1.0, 0.0, 0.0, 0.6])  # Red for ball joints (60% opacity)
+            else:  # HINGE
+                joint_colors.append([0.0, 1.0, 0.0, 0.6])  # Green for hinge joints (60% opacity)
+        
+        if joint_positions:
+            joint_positions = np.array(joint_positions)
+            joint_colors = np.array(joint_colors)
+            
+            joint_plot = gl.GLScatterPlotItem(
+                pos=joint_positions,
+                color=joint_colors,
+                size=self.voxel_size * 2.5,  # Smaller, clearer markers
+                pxMode=False,
+                glOptions='translucent'  # Semi-transparent
+            )
+            self.addItem(joint_plot)
+            self.skeleton_joint_plots.append(joint_plot)

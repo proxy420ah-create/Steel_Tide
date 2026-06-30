@@ -31,6 +31,8 @@ from command_system import (CommandHistory, PaintVoxelCommand, EraseVoxelCommand
 from fill_tool import flood_fill_3d
 from selection_system import SelectionBox, Clipboard
 from shape_tools import bresenham_line_3d, draw_rectangle_3d
+from skeleton_generator import SkeletonGenerator
+from skeleton_generator_tpose import generate_tpose_biped_skeleton
 
 class VoxelEditor(QMainWindow):
     """Main application window for Voxel Asset Studio"""
@@ -68,6 +70,10 @@ class VoxelEditor(QMainWindow):
         # Shape drawing state (for line and rectangle tools)
         self.shape_start_pos = None  # First click position for line/rectangle
         self.shape_preview_target = None  # Last locked preview coordinate
+        
+        # Skeleton data
+        self.skeleton_data = None  # Generated skeleton (bones, joints, influence map)
+        self.skeleton_visible = False  # Show skeleton overlay
         
         # Build UI
         self.init_ui()
@@ -345,6 +351,37 @@ class VoxelEditor(QMainWindow):
             action = QAction(tile_name, self)
             action.triggered.connect(lambda checked, name=tile_name, func=tile_func: self.generate_tileset(name, func))
             urban_menu.addAction(action)
+        
+        # Skeleton menu
+        skeleton_menu = menubar.addMenu("Skeleton")
+        
+        standalone_biped_action = QAction("🦴 Generate Standalone Biped Skeleton", self)
+        standalone_biped_action.triggered.connect(self.generate_standalone_biped_skeleton)
+        skeleton_menu.addAction(standalone_biped_action)
+        
+        skeleton_menu.addSeparator()
+        
+        auto_biped_action = QAction("🔍 Auto-Detect Biped Skeleton (from existing)", self)
+        auto_biped_action.triggered.connect(self.auto_generate_biped_skeleton)
+        skeleton_menu.addAction(auto_biped_action)
+        
+        auto_quadruped_action = QAction("🦴 Auto-Generate Quadruped Skeleton", self)
+        auto_quadruped_action.triggered.connect(self.auto_generate_quadruped_skeleton)
+        skeleton_menu.addAction(auto_quadruped_action)
+        
+        skeleton_menu.addSeparator()
+        
+        self.toggle_skeleton_action = QAction("👁️ Show/Hide Skeleton", self)
+        self.toggle_skeleton_action.setShortcut("Ctrl+K")
+        self.toggle_skeleton_action.setCheckable(True)
+        self.toggle_skeleton_action.setChecked(False)
+        self.toggle_skeleton_action.setEnabled(False)
+        self.toggle_skeleton_action.triggered.connect(self.toggle_skeleton_visibility)
+        skeleton_menu.addAction(self.toggle_skeleton_action)
+        
+        clear_skeleton_action = QAction("Clear Skeleton", self)
+        clear_skeleton_action.triggered.connect(self.clear_skeleton)
+        skeleton_menu.addAction(clear_skeleton_action)
         
         # Options menu
         options_menu = menubar.addMenu("Options")
@@ -1333,4 +1370,147 @@ class VoxelEditor(QMainWindow):
         """Reset volume offset to center"""
         self.volume_offset_panel.set_offset(0, 0, 0)
         self.statusBar().showMessage("📦 Volume offset reset to center")
+    
+    # ==================== SKELETON SYSTEM ====================
+    
+    def generate_standalone_biped_skeleton(self):
+        """Generate a standalone T-Pose skeleton model made entirely of bone and joint voxels"""
+        print("🦴 Generating T-Pose biped skeleton model...")
+        
+        # Generate T-Pose skeleton voxels + metadata
+        self.voxels, self.skeleton_data = generate_tpose_biped_skeleton(
+            grid_size=(18, 32, 8)  # Wider for arms
+        )
+        self.grid_size = self.voxels.shape
+        
+        # Update viewport
+        self.viewport.set_voxels(self.voxels)
+        self.viewport.grid_size = self.grid_size
+        
+        # Enable skeleton visibility
+        self.skeleton_visible = True
+        self.toggle_skeleton_action.setEnabled(True)
+        self.toggle_skeleton_action.setChecked(True)
+        
+        # Show skeleton overlay
+        self.viewport.set_skeleton_overlay(self.skeleton_data)
+        
+        # Update workspace panel
+        self.workspace_panel.set_dimensions(*self.grid_size)
+        
+        bone_count = len(self.skeleton_data['bones'])
+        joint_count = len(self.skeleton_data['joints'])
+        voxel_count = np.count_nonzero(self.voxels)
+        
+        self.statusBar().showMessage(
+            f"🦴 Standalone skeleton: {bone_count} bones, {joint_count} joints, {voxel_count} bone voxels",
+            5000
+        )
+        print(f"✅ Standalone skeleton: {self.grid_size}, {voxel_count} voxels")
+        
+        self.current_file = None
+        self.modified = True
+        self.update_title()
+    
+    def auto_generate_biped_skeleton(self):
+        """Auto-generate biped skeleton from current voxel volume"""
+        if self.voxels is None:
+            QMessageBox.warning(self, "No Voxels", "Load or generate voxels first before creating a skeleton.")
+            return
+        
+        print("🦴 Auto-generating biped skeleton...")
+        self.skeleton_data = SkeletonGenerator.auto_generate_biped(self.voxels)
+        
+        if self.skeleton_data is None:
+            QMessageBox.warning(self, "Generation Failed", "No voxels found to generate skeleton from.")
+            return
+        
+        # Compute influence weights
+        print("🦴 Computing influence weights...")
+        self.skeleton_data['influence_map'] = SkeletonGenerator.compute_influence_weights(
+            self.voxels, self.skeleton_data, radius=8
+        )
+        
+        # Enable skeleton visibility
+        self.skeleton_visible = True
+        self.toggle_skeleton_action.setEnabled(True)
+        self.toggle_skeleton_action.setChecked(True)
+        
+        # Update viewport with skeleton overlay
+        self.viewport.set_skeleton_overlay(self.skeleton_data)
+        
+        bone_count = len(self.skeleton_data['bones'])
+        joint_count = len(self.skeleton_data['joints'])
+        influence_count = len(self.skeleton_data['influence_map'])
+        
+        self.statusBar().showMessage(
+            f"🦴 Biped skeleton generated: {bone_count} bones, {joint_count} joints, {influence_count} influenced voxels",
+            5000
+        )
+        print(f"✅ Biped skeleton: {bone_count} bones, {joint_count} joints")
+        
+        self.modified = True
+        self.update_title()
+    
+    def auto_generate_quadruped_skeleton(self):
+        """Auto-generate quadruped skeleton from current voxel volume"""
+        if self.voxels is None:
+            QMessageBox.warning(self, "No Voxels", "Load or generate voxels first before creating a skeleton.")
+            return
+        
+        print("🦴 Auto-generating quadruped skeleton...")
+        self.skeleton_data = SkeletonGenerator.auto_generate_quadruped(self.voxels)
+        
+        if self.skeleton_data is None:
+            QMessageBox.warning(self, "Generation Failed", "No voxels found to generate skeleton from.")
+            return
+        
+        # Compute influence weights
+        print("🦴 Computing influence weights...")
+        self.skeleton_data['influence_map'] = SkeletonGenerator.compute_influence_weights(
+            self.voxels, self.skeleton_data, radius=8
+        )
+        
+        # Enable skeleton visibility
+        self.skeleton_visible = True
+        self.toggle_skeleton_action.setEnabled(True)
+        self.toggle_skeleton_action.setChecked(True)
+        
+        # Update viewport with skeleton overlay
+        self.viewport.set_skeleton_overlay(self.skeleton_data)
+        
+        bone_count = len(self.skeleton_data['bones'])
+        joint_count = len(self.skeleton_data['joints'])
+        influence_count = len(self.skeleton_data['influence_map'])
+        
+        self.statusBar().showMessage(
+            f"🦴 Quadruped skeleton generated: {bone_count} bones, {joint_count} joints, {influence_count} influenced voxels",
+            5000
+        )
+        print(f"✅ Quadruped skeleton: {bone_count} bones, {joint_count} joints")
+        
+        self.modified = True
+        self.update_title()
+    
+    def toggle_skeleton_visibility(self):
+        """Toggle skeleton overlay visibility"""
+        self.skeleton_visible = self.toggle_skeleton_action.isChecked()
+        
+        if self.skeleton_data is not None:
+            if self.skeleton_visible:
+                self.viewport.set_skeleton_overlay(self.skeleton_data)
+                self.statusBar().showMessage("👁️ Skeleton visible", 2000)
+            else:
+                self.viewport.set_skeleton_overlay(None)
+                self.statusBar().showMessage("👁️ Skeleton hidden", 2000)
+    
+    def clear_skeleton(self):
+        """Clear skeleton data"""
+        self.skeleton_data = None
+        self.skeleton_visible = False
+        self.toggle_skeleton_action.setEnabled(False)
+        self.toggle_skeleton_action.setChecked(False)
+        self.viewport.set_skeleton_overlay(None)
+        self.statusBar().showMessage("🦴 Skeleton cleared", 2000)
+        print("✅ Skeleton cleared")
     

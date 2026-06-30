@@ -22,7 +22,7 @@ MATERIALS = {
     
     # Utility/Clothing (11-12)
     11: {"name": "Uniform", "color": (0.2, 0.3, 0.2, 1.0)},                 # Dark green - Military uniform
-    12: {"name": "Reserved", "color": (0.0, 0.0, 0.0, 0.0)},                # Reserved for future use
+    12: {"name": "Bone", "color": (0.9, 0.86, 0.78, 1.0)},                   # White/Beige - Skeleton bones (indestructible)
     
     # Damage States (13-15)
     13: {"name": "Damaged Concrete", "color": (0.85, 0.15, 0.15, 1.0)},     # Crimson - Battle damage
@@ -35,6 +35,9 @@ MATERIALS = {
     18: {"name": "Foam-Crete", "color": (0.75, 0.75, 0.78, 1.0)},           # Light gray - Quick-deploy foam
     19: {"name": "Nanomesh Fabric", "color": (0.2, 0.25, 0.3, 1.0)},        # Dark blue - Smart fabric
     20: {"name": "Plasteel Panels", "color": (0.45, 0.48, 0.5, 1.0)},       # Medium gray - Plastic-metal hybrid
+    
+    # Skeleton Materials (21)
+    21: {"name": "Joint", "color": (1.0, 0.25, 0.25, 1.0)},                  # Red - Skeleton joints (indestructible)
 }
 
 # Default paint materials (all available materials for painting)
@@ -59,6 +62,8 @@ DEFAULT_MATERIALS = [
     18,  # Foam-Crete
     19,  # Nanomesh Fabric
     20,  # Plasteel Panels
+    12,  # Bone
+    21,  # Joint
 ]
 
 def get_material_name(material_id):

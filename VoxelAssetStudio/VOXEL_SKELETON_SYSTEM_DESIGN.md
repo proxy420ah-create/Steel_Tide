@@ -9,11 +9,34 @@
 
 ## Executive Summary
 
-The **Voxel Skeleton System** enables procedural animation for voxel-based characters and mechs by embedding skeletal data directly into voxel volumes using special voxel types (bones, joints, attachments). This allows runtime IK-based animation while maintaining compatibility with the existing VoxelWorld architecture and damage system.
+The **Voxel Skeleton System** enables creation of poseable voxel characters by embedding skeletal data directly into voxel volumes. The skeleton is created in **Voxel Asset Studio** (modeling tool) and brought to life in **Unity** (runtime engine) with physics, IK, and procedural animation.
 
 ### Key Innovation
 
-Instead of choosing between pre-recorded frames OR runtime voxel manipulation, we embed a **virtual skeleton** using special voxel materials. Bone voxels act as IK targets - when IK solves bone positions, we move the voxel clusters influenced by those bones.
+**Separation of Concerns**:
+- **Voxel Asset Studio**: Create skeleton + body, export `.stasset` with metadata
+- **Unity**: Import skeleton, add physics/joints, animate with IK
+
+Instead of choosing between pre-recorded frames OR runtime voxel manipulation, we embed a **virtual skeleton** using special voxel materials. Bone voxels act as IK targets - when IK solves bone positions (in Unity), we move the voxel clusters influenced by those bones.
+
+### Tool Responsibilities
+
+**Voxel Asset Studio (Python)** - Asset Creation:
+- ✅ Generate standalone skeleton (bone voxels)
+- ✅ Paint/sculpt body around skeleton
+- ✅ Optional: Simple pose editor for reference poses (T-pose, idle)
+- ✅ Export `.stasset` with skeleton metadata
+- ❌ NO physics simulation
+- ❌ NO real-time animation
+- ❌ NO procedural walk cycles
+
+**Unity (C#)** - Runtime Animation:
+- ✅ Import `.stasset` with skeleton
+- ✅ Add Rigidbody + joints (physics)
+- ✅ IK solver (FABRIK)
+- ✅ Procedural animation (walk cycles, terrain adaptation)
+- ✅ Damage system integration
+- ✅ Real-time pose manipulation
 
 ---
 

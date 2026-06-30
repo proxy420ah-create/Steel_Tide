@@ -34,7 +34,7 @@ Complete material definitions synchronized between Asset Studio (Python) and Uni
 | ID | Name | Color (RGB) | Use Case | Resistance |
 |----|------|-------------|----------|------------|
 | **11** | Uniform | Dark Green (51, 76, 51) | Military uniform | 0.1 |
-| **12** | Reserved | - | Future use | - |
+| **12** | Bone | White/Beige (230, 220, 200) | Skeleton bones | 1.0 (indestructible) |
 
 ### **Damage States (13-15)**
 | ID | Name | Color (RGB) | Use Case | Resistance |
@@ -51,6 +51,11 @@ Complete material definitions synchronized between Asset Studio (Python) and Uni
 | **18** | Foam-Crete | Light Gray (191, 191, 199) | Quick-deploy foam | 0.3 |
 | **19** | Nanomesh Fabric | Dark Blue (51, 64, 77) | Smart fabric | 0.15 |
 | **20** | Plasteel Panels | Medium Gray (115, 122, 128) | Plastic-metal hybrid | 0.7 |
+
+### **Skeleton Materials (21)**
+| ID | Name | Color (RGB) | Use Case | Resistance |
+|----|------|-------------|----------|------------|
+| **21** | Joint | Red (255, 64, 64) | Skeleton joints | 1.0 (indestructible) |
 
 ---
 
