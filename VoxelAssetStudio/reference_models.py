@@ -78,68 +78,68 @@ class ReferenceModelLibrary:
         print("📏 Loading scale reference models...")
         
         # Basketball: 0.24m diameter
-        # Position: Y=0 (sitting on ground)
+        # Position: Y=0 (sitting on ground) - left edge of viewport
         basketball = self._generate_sphere(radius=1, material=1)  # Prefab Composite (tan)
         self.add_model(
             "Basketball", 
             basketball, 
             (0.24, 0.24, 0.24), 
-            position=(-20, 0, -20),
+            position=(-120, 0, -60),  # Left edge, spread out
             icon="🏀"
         )
         
         # Trash Can: 0.6m × 1.0m tall
-        # Position: Y=0 (sitting on ground)
+        # Position: Y=0 (sitting on ground) - left edge of viewport
         trash_can = self._generate_cylinder(radius=2, height=8, material=3)  # Concrete (gray)
         self.add_model(
             "Trash Can", 
             trash_can, 
             (0.6, 1.0, 0.6),
-            position=(-20, 0, -15),
+            position=(-120, 0, -30),  # Left edge, spread out
             icon="🗑️"
         )
         
         # Human: 0.5m × 1.8m tall
-        # Position: Y=0 (standing on ground)
+        # Position: Y=0 (standing on ground) - left edge of viewport
         human = self._generate_box((4, 14, 4), material=4)  # Flesh (skin tone)
         self.add_model(
             "Human", 
             human, 
             (0.5, 1.8, 0.5),
-            position=(-20, 0, -10),
+            position=(-120, 0, 0),  # Left edge, spread out
             icon="🧍"
         )
         
         # Dumpster: 1.8m × 2.0m × 1.2m
-        # Position: Y=0 (sitting on ground)
+        # Position: Y=0 (sitting on ground) - left edge of viewport
         dumpster = self._generate_box((14, 16, 10), material=5)  # Durasteel (blue-gray)
         self.add_model(
             "Dumpster", 
             dumpster, 
             (1.8, 2.0, 1.2),
-            position=(-20, 0, -5),
+            position=(-120, 0, 30),  # Left edge, spread out
             icon="🚮"
         )
         
         # Street Light: 0.3m × 4.0m tall
-        # Position: Y=0 (base on ground)
+        # Position: Y=0 (base on ground) - left edge of viewport
         light = self._generate_cylinder(radius=1, height=32, material=10)  # Transparent Aluminum (light blue)
         self.add_model(
             "Street Light", 
             light, 
             (0.3, 4.0, 0.3),
-            position=(-20, 0, 5),
+            position=(-120, 0, 60),  # Left edge, spread out
             icon="💡"
         )
         
         # Tree: 1.5m × 6.0m tall (trunk + canopy)
-        # Position: Y=0 (trunk base on ground)
+        # Position: Y=0 (trunk base on ground) - front edge (starts new line for bigger models)
         tree = self._generate_tree(trunk_radius=2, height=48)
         self.add_model(
             "Tree", 
             tree, 
             (1.5, 6.0, 1.5),
-            position=(-20, 0, 15),
+            position=(-80, 0, -120),  # Front edge, starts new line
             icon="🌳"
         )
         

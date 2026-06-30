@@ -24,6 +24,68 @@ def generate_cube(size, material_id=3):
     
     return voxels
 
+
+def generate_simple_humanoid(size=(4, 14, 4), core_material=3, shell_material=5):
+    """Generate a carved humanoid silhouette within the existing character block size."""
+    width, height, depth = size
+    voxels = np.zeros(size, dtype=np.uint16)
+
+    def fill_block(x_slice, y_slice, z_slice):
+        voxels[x_slice[0]:x_slice[1], y_slice[0]:y_slice[1], z_slice[0]:z_slice[1]] = core_material
+
+    # Legs + feet
+    fill_block((1, 2), (0, 5), (1, 2))  # Left leg
+    fill_block((2, 3), (0, 5), (1, 2))  # Right leg
+    fill_block((1, 2), (0, 1), (0, 3))  # Left foot
+    fill_block((2, 3), (0, 1), (0, 3))  # Right foot
+
+    # Hips / waist connector
+    fill_block((1, 3), (4, 6), (1, 3))
+
+    # Torso core
+    fill_block((1, 3), (5, 11), (1, 3))
+
+    # Shoulders bar
+    fill_block((0, 4), (9, 11), (1, 3))
+
+    # Arms
+    fill_block((0, 1), (6, 10), (1, 3))
+    fill_block((3, 4), (6, 10), (1, 3))
+
+    # Neck and head
+    fill_block((1, 3), (10, 11), (1, 3))  # Neck
+    fill_block((1, 3), (11, height), (1, 3))  # Head
+
+    # Apply armored shell (steel) to exposed surface voxels
+    offsets = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+    for x in range(width):
+        for y in range(height):
+            for z in range(depth):
+                if voxels[x, y, z] != core_material:
+                    continue
+                exposed = False
+                for dx, dy, dz in offsets:
+                    nx, ny, nz = x + dx, y + dy, z + dz
+                    if nx < 0 or nx >= width or ny < 0 or ny >= height or nz < 0 or nz >= depth:
+                        exposed = True
+                        break
+                    if voxels[nx, ny, nz] == 0:
+                        exposed = True
+                        break
+                voxels[x, y, z] = shell_material if exposed else core_material
+
+    voxel_count = np.count_nonzero(voxels)
+    print("🧍 Generated simple humanoid block:")
+    print(f"   Grid: {size} | Voxels: {voxel_count}")
+    print(f"   Materials → Shell:{shell_material} Core:{core_material}")
+
+    return voxels
+
+
+def generate_simple_humanoid_variant(size=(4, 14, 4), core_material=3, shell_material=5):
+    """Placeholder variant for upcoming experiments (duplicates base humanoid for now)."""
+    return generate_simple_humanoid(size=size, core_material=core_material, shell_material=shell_material)
+
 def generate_sphere(grid_size, radius, center, material_id=3):
     """
     Generate a solid sphere of voxels

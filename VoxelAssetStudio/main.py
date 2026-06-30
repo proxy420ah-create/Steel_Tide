@@ -43,7 +43,7 @@ def main():
     
     # Create main window
     editor = VoxelEditor()
-    editor.show()
+    editor.showMaximized()
     
     # Start with blank canvas - no auto-loading
     print("📋 Starting with blank canvas")

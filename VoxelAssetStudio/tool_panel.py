@@ -47,6 +47,26 @@ class ToolPanel(QWidget):
         self.tool_buttons.addButton(erase_btn)
         tool_layout.addWidget(erase_btn)
         
+        fill_btn = QRadioButton("🪣 Fill")
+        fill_btn.toggled.connect(lambda: self.set_tool("fill"))
+        self.tool_buttons.addButton(fill_btn)
+        tool_layout.addWidget(fill_btn)
+        
+        select_btn = QRadioButton("📦 Select")
+        select_btn.toggled.connect(lambda: self.set_tool("select"))
+        self.tool_buttons.addButton(select_btn)
+        tool_layout.addWidget(select_btn)
+        
+        line_btn = QRadioButton("📏 Line")
+        line_btn.toggled.connect(lambda: self.set_tool("line"))
+        self.tool_buttons.addButton(line_btn)
+        tool_layout.addWidget(line_btn)
+        
+        rect_btn = QRadioButton("▭ Rectangle")
+        rect_btn.toggled.connect(lambda: self.set_tool("rectangle"))
+        self.tool_buttons.addButton(rect_btn)
+        tool_layout.addWidget(rect_btn)
+        
         tool_group.setLayout(tool_layout)
         layout.addWidget(tool_group)
         

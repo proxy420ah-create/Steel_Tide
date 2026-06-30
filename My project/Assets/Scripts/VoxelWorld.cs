@@ -103,7 +103,14 @@ public class VoxelWorld : MonoBehaviour
     public void SetVoxel(Vector3 worldPosition, byte materialID)
     {
         Vector3Int gridPos = WorldToVoxelGrid(worldPosition);
-        
+        SetVoxel(gridPos, materialID);
+    }
+
+    /// <summary>
+    /// Set voxel material directly via grid coordinate (0 = air/destroy)
+    /// </summary>
+    public void SetVoxel(Vector3Int gridPos, byte materialID)
+    {
         if (materialID == 0)
         {
             voxelData.Remove(gridPos); // Remove air voxels to save memory

@@ -35,8 +35,16 @@ public class VoxelPhysics : MonoBehaviour
     [Tooltip("Camera transform for look direction")]
     public Transform cameraTransform;
     
-    [Tooltip("Mouse sensitivity")]
+    [Tooltip("Base mouse sensitivity")]
     public float mouseSensitivity = 2f;
+    
+    [Tooltip("Mouse sensitivity multiplier (0.1 = very slow, 1.0 = normal, 2.0 = very fast)")]
+    [Range(0.1f, 2.0f)]
+    public float mouseSensitivityMultiplier = 1.0f;
+    
+    [Tooltip("Keyboard movement sensitivity multiplier (0.1 = very slow, 1.0 = normal, 2.0 = very fast)")]
+    [Range(0.1f, 2.0f)]
+    public float keyboardSensitivityMultiplier = 1.0f;
     
     [Tooltip("Vertical look limits")]
     public float maxLookAngle = 80f;
@@ -150,12 +158,15 @@ public class VoxelPhysics : MonoBehaviour
     {
         if (Cursor.lockState != CursorLockMode.Locked) return;
         
+        // Apply sensitivity multiplier for fine control
+        float effectiveMouseSens = mouseSensitivity * mouseSensitivityMultiplier;
+        
         // Horizontal rotation (Y-axis) - rotate player body
-        float yaw = lookInput.x * mouseSensitivity;
+        float yaw = lookInput.x * effectiveMouseSens;
         transform.Rotate(Vector3.up * yaw);
         
         // Vertical rotation (X-axis) - rotate camera only
-        cameraPitch -= lookInput.y * mouseSensitivity;
+        cameraPitch -= lookInput.y * effectiveMouseSens;
         cameraPitch = Mathf.Clamp(cameraPitch, -maxLookAngle, maxLookAngle);
         cameraTransform.localEulerAngles = new Vector3(cameraPitch, 0f, 0f);
     }
@@ -227,8 +238,9 @@ public class VoxelPhysics : MonoBehaviour
         // Calculate desired movement
         Vector3 moveDirection = (forward * moveInput.y + right * moveInput.x).normalized;
         
-        // Apply speed
-        float currentSpeed = sprintInput ? moveSpeed * sprintMultiplier : moveSpeed;
+        // Apply speed with keyboard sensitivity multiplier for fine control
+        float baseSpeed = sprintInput ? moveSpeed * sprintMultiplier : moveSpeed;
+        float currentSpeed = baseSpeed * keyboardSensitivityMultiplier;
         Vector3 horizontalVelocity = moveDirection * currentSpeed;
         
         // Combine horizontal and vertical velocity

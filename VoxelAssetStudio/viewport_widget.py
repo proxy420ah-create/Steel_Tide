@@ -6,7 +6,7 @@ from pyqtgraph.opengl.MeshData import MeshData
 from PyQt6.QtGui import QVector3D as Vec3
 from PyQt6.QtCore import pyqtSignal, QTimer, Qt
 from PyQt6.QtGui import QMouseEvent, QVector3D
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QLabel, QApplication
 import numpy as np
 from material_library import get_material_color, get_material_name
 import pyqtgraph.opengl as gl
@@ -63,6 +63,7 @@ class VoxelViewport(GLViewWidget):
         self.voxels = None
         self.grid_size = (32, 32, 32)
         self.voxel_size = 0.125  # World units per voxel
+        self.model_offset = (0, 0, 0)  # Offset for loaded model (x, y, z in voxels)
         
         # Rendering
         self.voxel_plot = None  # Scatter plot for all voxels
@@ -79,7 +80,19 @@ class VoxelViewport(GLViewWidget):
         # Settings
         self.highlight_hover_enabled = True  # Now works with proper ray casting!
         self.brush_size = 1
-        self.hover_voxel = None  # Current voxel under cursor
+        self.hover_voxel = None  # Current voxel under cursor (solid voxels only)
+        self.hover_grid_pos = None  # Grid coordinate under cursor (even in empty space)
+        
+        # Selection rendering
+        self.selection_box_plot = None  # Wireframe box
+        self.current_selection = None  # SelectionBox reference
+        
+        # Shape preview rendering (for line/rectangle tools)
+        self.shape_preview_plot = None  # Preview voxels
+        self.shape_preview_positions = []  # List of preview positions
+        
+        # Workspace volume wireframe (shows the editable numpy array bounds)
+        self.workspace_volume_plot = None  # Wireframe showing grid_size bounds
         
         # Debug: Add axis compass (RGB = XYZ)
         self._add_axis_compass()
@@ -143,6 +156,30 @@ class VoxelViewport(GLViewWidget):
         self.voxels = voxels
         self.grid_size = voxels.shape
         self.render_voxels()
+        self.render_workspace_volume()  # Show the editable volume bounds
+    
+    def set_model_offset(self, x, y, z):
+        """Set offset for loaded model position"""
+        self.model_offset = (x, y, z)
+        self.render_voxels()
+        print(f"📐 Model offset: ({x}, {y}, {z}) voxels")
+    
+    def snap_to_reference(self, reference_name):
+        """Snap loaded model next to a reference model"""
+        model = self.reference_library.get_model_by_name(reference_name)
+        if model is None:
+            print(f"⚠️ Reference model '{reference_name}' not found")
+            return None
+        
+        # Snap position: place model 10 voxels to the right of reference
+        ref_x, ref_y, ref_z = model.position
+        snap_x = ref_x + 10  # 10 voxels to the right
+        snap_y = ref_y       # Same ground level
+        snap_z = ref_z       # Same Z position
+        
+        self.set_model_offset(snap_x, snap_y, snap_z)
+        print(f"📍 Snapped to {model.icon} {model.name} at ({snap_x}, {snap_y}, {snap_z})")
+        return (snap_x, snap_y, snap_z)
         
     def render_voxels(self):
         """Render all non-air voxels as fast scatter plot"""
@@ -164,9 +201,13 @@ class VoxelViewport(GLViewWidget):
         # Store voxel coordinates for mouse picking (CRITICAL!)
         self.voxel_coords = [tuple(c) for c in coords]
         
-        # Scale coordinates to world space and apply Y/Z swap
+        # Scale coordinates to world space and apply Y/Z swap + model offset
         # Use centralized transform for consistency
-        positions = np.array([self.voxel_to_world_coords(x, y, z) for x, y, z in coords])
+        offset_x, offset_y, offset_z = self.model_offset
+        positions = np.array([
+            self.voxel_to_world_coords(x + offset_x, y + offset_y, z + offset_z) 
+            for x, y, z in coords
+        ])
         
         # For now: Use material ID to determine color intensity
         # This is a workaround - scatter plot has limited color support
@@ -228,21 +269,31 @@ class VoxelViewport(GLViewWidget):
             coords = []
             colors = []
             
+            # Track first voxel position for debug output
+            first_voxel_pos = None
+            
             # Convert voxels to world coordinates
             for x in range(model.voxels.shape[0]):
                 for y in range(model.voxels.shape[1]):
                     for z in range(model.voxels.shape[2]):
                         if model.voxels[x, y, z] != 0:  # Not air
-                            # Transform to world position
-                            world_x = model.position[0] + x * self.voxel_size
-                            world_y = model.position[2] + z * self.voxel_size  # Y/Z swap
-                            world_z = model.position[1] + y * self.voxel_size  # Y/Z swap
+                            # Transform to world position (position is now in voxel coordinates)
+                            world_x = (model.position[0] + x) * self.voxel_size
+                            world_y = (model.position[2] + z) * self.voxel_size  # Y/Z swap
+                            world_z = (model.position[1] + y) * self.voxel_size  # Y/Z swap
+                            
+                            if first_voxel_pos is None:
+                                first_voxel_pos = (world_x, world_y, world_z)
                             
                             coords.append([world_x, world_y, world_z])
                             
                             # Semi-transparent yellow tint
                             color = list(model.color_tint) + [model.opacity]
                             colors.append(color)
+            
+            # Debug: Print actual world position
+            if first_voxel_pos:
+                print(f"📍 {model.icon} {model.name}: coded={model.position}, world=({first_voxel_pos[0]:.2f}, {first_voxel_pos[1]:.2f}, {first_voxel_pos[2]:.2f})")
             
             if coords:
                 coords = np.array(coords)
@@ -350,6 +401,19 @@ class VoxelViewport(GLViewWidget):
         pan_btn = self._get_button_for_action("pan")
         paint_btn = self._get_button_for_action("paint")
         
+        # Right-click - cancel shape drawing
+        if ev.button() == Qt.MouseButton.RightButton:
+            editor = self.window()
+            if hasattr(editor, 'shape_start_pos') and editor.shape_start_pos is not None:
+                editor.shape_start_pos = None
+                if hasattr(editor, 'shape_preview_target'):
+                    editor.shape_preview_target = None
+                self.clear_shape_preview()
+                if hasattr(editor, 'statusBar'):
+                    editor.statusBar().showMessage("❌ Shape drawing cancelled", 2000)
+                print("❌ Shape drawing cancelled (right-click)")
+                return
+        
         if ev.button() == paint_btn and paint_btn is not None:
             # Paint/interact button - pick voxel using ray casting
             mouse_pos = ev.position()
@@ -360,7 +424,15 @@ class VoxelViewport(GLViewWidget):
                 self.voxel_clicked.emit(hit_voxel[0], hit_voxel[1], hit_voxel[2])
                 print(f"🎯 Clicked voxel: {hit_voxel}")
             else:
-                print("❌ No voxel hit")
+                editor = self.window()
+                preview_target = getattr(editor, 'shape_preview_target', None)
+                if (preview_target is not None and
+                        getattr(editor, 'shape_start_pos', None) is not None):
+                    px, py, pz = map(int, preview_target)
+                    self.voxel_clicked.emit(px, py, pz)
+                    print(f"🎯 Clicked preview voxel: {(px, py, pz)}")
+                else:
+                    print("❌ No voxel hit")
             return
         elif ev.button() == orbit_btn and orbit_btn is not None:
             # Orbit button → convert to left-click for GLViewWidget
@@ -591,6 +663,169 @@ class VoxelViewport(GLViewWidget):
                     t_max[2] += t_delta[2]
         
         return None  # No hit
+    
+    def _get_grid_pos_at_mouse(self, mouse_x, mouse_y, max_distance=50):
+        """
+        Get grid coordinate at mouse position, even in empty space.
+        Projects ray and returns the nearest grid coordinate along the ray.
+        
+        Args:
+            mouse_x, mouse_y: Mouse position
+            max_distance: Maximum distance to project ray
+        
+        Returns:
+            (x, y, z) grid coordinates or None if out of bounds
+        """
+        if self.voxels is None:
+            return None
+        
+        # Get ray from mouse position
+        ray_origin, ray_direction = self._get_ray_from_mouse(mouse_x, mouse_y)
+        
+        if ray_origin is None or ray_direction is None:
+            return None
+        
+        # First, try to hit an existing voxel
+        hit_voxel = self._pick_voxel_at_mouse(mouse_x, mouse_y)
+        if hit_voxel is not None:
+            return hit_voxel
+        
+        # No existing voxel hit - project ray into empty space
+        # Find the closest grid point along the ray within bounds
+        for t in np.linspace(0, max_distance, 200):  # Sample along ray
+            point = ray_origin + t * ray_direction
+            
+            # Convert to voxel grid coordinates
+            grid_x = int(np.round(point[0] / self.voxel_size))
+            grid_y = int(np.round(point[2] / self.voxel_size))  # viewport Z = voxel Y
+            grid_z = int(np.round(point[1] / self.voxel_size))  # viewport Y = voxel Z
+            
+            # Check if in bounds
+            if (0 <= grid_x < self.grid_size[0] and
+                0 <= grid_y < self.grid_size[1] and
+                0 <= grid_z < self.grid_size[2]):
+                return (grid_x, grid_y, grid_z)
+        
+        return None
+    
+    def _intersect_ray_with_plane(self, ray_origin, ray_direction, plane_point, plane_normal):
+        """
+        Intersect ray with an infinite plane.
+        
+        Args:
+            ray_origin: Ray starting point (numpy array)
+            ray_direction: Ray direction (normalized numpy array)
+            plane_point: Any point on the plane (numpy array)
+            plane_normal: Plane normal vector (numpy array)
+        
+        Returns:
+            Intersection point (numpy array) or None if no intersection
+        """
+        # Calculate denominator (dot product of normal and ray direction)
+        denom = np.dot(plane_normal, ray_direction)
+        
+        # Check if ray is parallel to plane (or nearly parallel)
+        if abs(denom) < 1e-6:
+            return None
+        
+        # Calculate t parameter
+        t = np.dot(plane_normal, plane_point - ray_origin) / denom
+        
+        # Check if intersection is behind the ray origin
+        if t < 0:
+            return None
+        
+        # Calculate intersection point
+        intersection = ray_origin + t * ray_direction
+        return intersection
+    
+    def get_grid_pos_on_axis_plane(self, mouse_x, mouse_y, anchor_pos, axis):
+        """Project mouse ray onto a virtual construction plane for axis-locked movement."""
+        # Validate axis value early
+        if axis not in ('x', 'y', 'z'):
+            return None
+
+        # Build ray from cursor into world
+        ray_origin, ray_direction = self._get_ray_from_mouse(mouse_x, mouse_y)
+        if ray_origin is None or ray_direction is None:
+            return None
+
+        # World translation caused by model offset (remember Y/Z swap!)
+        offset_world = np.array([
+            self.model_offset[0] * self.voxel_size,
+            self.model_offset[2] * self.voxel_size,  # viewport Y = voxel Z
+            self.model_offset[1] * self.voxel_size   # viewport Z = voxel Y
+        ])
+
+        # Anchor in world space with offset applied
+        anchor_world = np.array(self.voxel_to_world_coords(*anchor_pos)) + offset_world
+
+        # Axis direction in world space (normalized)
+        axis_vectors = {
+            'x': np.array([1.0, 0.0, 0.0]),
+            'y': np.array([0.0, 0.0, 1.0]),  # voxel Y (up) == world Z
+            'z': np.array([0.0, 1.0, 0.0])   # voxel Z (depth) == world Y
+        }
+        axis_dir_world = axis_vectors[axis]
+        axis_dir_world = axis_dir_world / np.linalg.norm(axis_dir_world)
+
+        # True camera view direction (from camera toward GLViewWidget center)
+        camera_pos = self.cameraPosition()
+        cam_vec = np.array([camera_pos.x(), camera_pos.y(), camera_pos.z()])
+        center = np.array([
+            self.opts['center'][0],
+            self.opts['center'][1],
+            self.opts['center'][2]
+        ])
+        view_direction = center - cam_vec
+        view_norm = np.linalg.norm(view_direction)
+        if view_norm < 1e-6:
+            return None
+        view_direction = view_direction / view_norm
+
+        # Plane normal must contain the axis and face the camera: use cross-product
+        plane_normal = np.cross(axis_dir_world, view_direction)
+        plane_norm = np.linalg.norm(plane_normal)
+        if plane_norm < 1e-6:
+            # Camera parallel to axis – fall back to a safe up vector
+            fallback = np.array([0.0, 0.0, 1.0])
+            plane_normal = np.cross(axis_dir_world, fallback)
+            plane_norm = np.linalg.norm(plane_normal)
+            if plane_norm < 1e-6:
+                # Final fallback to world Y if still degenerate
+                plane_normal = np.cross(axis_dir_world, np.array([0.0, 1.0, 0.0]))
+                plane_norm = np.linalg.norm(plane_normal)
+                if plane_norm < 1e-6:
+                    return None
+        plane_normal = plane_normal / plane_norm
+
+        # Intersect the ray with the plane anchored at the voxel
+        intersection = self._intersect_ray_with_plane(
+            ray_origin,
+            ray_direction,
+            anchor_world,
+            plane_normal
+        )
+        if intersection is None:
+            return None
+
+        # Project the intersection onto the requested axis
+        delta_world = intersection - anchor_world
+        axis_delta = np.dot(delta_world, axis_dir_world)
+        target_world = anchor_world + axis_dir_world * axis_delta
+
+        # Remove model offset before converting back to grid coordinates
+        relative_world = target_world - offset_world
+        grid_x = int(np.round(relative_world[0] / self.voxel_size))
+        grid_y = int(np.round(relative_world[2] / self.voxel_size))  # viewport Z = voxel Y
+        grid_z = int(np.round(relative_world[1] / self.voxel_size))  # viewport Y = voxel Z
+
+        # Clamp to grid bounds
+        grid_x = max(0, min(grid_x, self.grid_size[0] - 1))
+        grid_y = max(0, min(grid_y, self.grid_size[1] - 1))
+        grid_z = max(0, min(grid_z, self.grid_size[2] - 1))
+
+        return (grid_x, grid_y, grid_z)
         
     def set_highlight_hover(self, enabled):
         """Enable/disable hover highlighting"""
@@ -621,10 +856,28 @@ class VoxelViewport(GLViewWidget):
         # Pick voxel at mouse position using proper ray casting
         hit_voxel = self._pick_voxel_at_mouse(mouse_x, mouse_y)
         
+        # Also get grid position (even in empty space) for shape preview
+        grid_pos = self._get_grid_pos_at_mouse(mouse_x, mouse_y)
+        
         # Update hover voxel (silent - use Spacebar to debug)
         if hit_voxel != self.hover_voxel:
             self.hover_voxel = hit_voxel
             self._render_hover_highlight()
+        
+        # Update hover grid position (for shape preview)
+        editor = self.window()
+        modifiers = QApplication.keyboardModifiers()
+
+        notify_preview = grid_pos != self.hover_grid_pos
+        if not notify_preview and hasattr(editor, 'shape_start_pos') and editor.shape_start_pos is not None:
+            tool = getattr(editor.tool_panel, 'get_current_tool', lambda: None)()
+            if tool in ["line", "rectangle"]:
+                notify_preview = True
+
+        if notify_preview:
+            self.hover_grid_pos = grid_pos
+            if hasattr(editor, 'on_hover_grid_changed'):
+                editor.on_hover_grid_changed(grid_pos, modifiers)
     
     def _render_hover_highlight(self):
         """Render highlight box around hover voxel (snapped to voxel grid)"""
@@ -857,3 +1110,246 @@ class VoxelViewport(GLViewWidget):
         z_axis = np.array([[0, 0, 0], [0, 0, axis_length]])
         z_line = GLLinePlotItem(pos=z_axis, color=(0, 0, 1, 1), width=3, antialias=True)
         self.addItem(z_line)
+    
+    # ========== SELECTION RENDERING ==========
+    
+    def __init_selection_rendering(self):
+        """Initialize selection rendering (called in __init__)"""
+        self.selection_box_plot = None  # Wireframe box
+        self.selection_highlight_plot = None  # Highlighted voxels
+        self.current_selection = None  # SelectionBox reference
+    
+    def set_selection(self, selection_box):
+        """Update selection rendering"""
+        self.current_selection = selection_box
+        self._render_selection()
+    
+    def clear_selection(self):
+        """Clear selection rendering"""
+        self.current_selection = None
+        self._render_selection()
+    
+    # ========== WORKSPACE VOLUME WIREFRAME ==========
+    
+    def render_workspace_volume(self):
+        """Render wireframe showing the editable numpy array bounds"""
+        # Remove old wireframe
+        if self.workspace_volume_plot is not None:
+            self.removeItem(self.workspace_volume_plot)
+            self.workspace_volume_plot = None
+        
+        if self.grid_size is None:
+            return
+        
+        # Get grid dimensions
+        max_x, max_y, max_z = self.grid_size
+        
+        # Convert to world coordinates (full volume from 0 to max)
+        # Use -0.5 and max+0.5 to show the outer edges of the voxel grid
+        wx1, wy1, wz1 = self.voxel_to_world_coords(-0.5, -0.5, -0.5)
+        wx2, wy2, wz2 = self.voxel_to_world_coords(max_x - 0.5, max_y - 0.5, max_z - 0.5)
+        
+        # Create 12 edges of the box
+        edges = []
+        
+        # Bottom face (4 edges)
+        edges.append([[wx1, wy1, wz1], [wx2, wy1, wz1]])
+        edges.append([[wx2, wy1, wz1], [wx2, wy2, wz1]])
+        edges.append([[wx2, wy2, wz1], [wx1, wy2, wz1]])
+        edges.append([[wx1, wy2, wz1], [wx1, wy1, wz1]])
+        
+        # Top face (4 edges)
+        edges.append([[wx1, wy1, wz2], [wx2, wy1, wz2]])
+        edges.append([[wx2, wy1, wz2], [wx2, wy2, wz2]])
+        edges.append([[wx2, wy2, wz2], [wx1, wy2, wz2]])
+        edges.append([[wx1, wy2, wz2], [wx1, wy1, wz2]])
+        
+        # Vertical edges (4 edges)
+        edges.append([[wx1, wy1, wz1], [wx1, wy1, wz2]])
+        edges.append([[wx2, wy1, wz1], [wx2, wy1, wz2]])
+        edges.append([[wx2, wy2, wz1], [wx2, wy2, wz2]])
+        edges.append([[wx1, wy2, wz1], [wx1, wy2, wz2]])
+        
+        # Combine all edges
+        all_points = []
+        for edge in edges:
+            all_points.extend(edge)
+        
+        points = np.array(all_points)
+        
+        # Create line plot (cyan/blue, semi-transparent, thinner than selection)
+        self.workspace_volume_plot = GLLinePlotItem(
+            pos=points,
+            color=(0.3, 0.6, 1.0, 0.5),  # Light blue, 50% opacity
+            width=2,
+            antialias=True,
+            mode='lines'
+        )
+        self.addItem(self.workspace_volume_plot)
+        
+        print(f"📦 Workspace volume: {max_x}×{max_y}×{max_z} voxels")
+    
+    # ========== SELECTION RENDERING ==========
+    
+    def _render_selection(self):
+        """Render selection wireframe box"""
+        # Remove old wireframe
+        if self.selection_box_plot is not None:
+            self.removeItem(self.selection_box_plot)
+            self.selection_box_plot = None
+        
+        # If no selection, we're done
+        if self.current_selection is None or not self.current_selection.active:
+            return
+        
+        bounds = self.current_selection.get_bounds()
+        if not bounds:
+            return
+        
+        min_x, max_x, min_y, max_y, min_z, max_z = bounds
+        
+        # Render wireframe box only (no voxel highlights)
+        self._render_selection_wireframe(min_x, max_x, min_y, max_y, min_z, max_z)
+    
+    def _render_selection_wireframe(self, min_x, max_x, min_y, max_y, min_z, max_z):
+        """Render yellow wireframe box around selection"""
+        # Convert voxel bounds to world coordinates (edges of voxels)
+        # Add 0.5 offset to center on voxel boundaries
+        wx1, wy1, wz1 = self.voxel_to_world_coords(min_x - 0.5, min_y - 0.5, min_z - 0.5)
+        wx2, wy2, wz2 = self.voxel_to_world_coords(max_x + 0.5, max_y + 0.5, max_z + 0.5)
+        
+        # Create 12 edges of the box
+        edges = []
+        
+        # Bottom face (4 edges)
+        edges.append([[wx1, wy1, wz1], [wx2, wy1, wz1]])  # Front
+        edges.append([[wx2, wy1, wz1], [wx2, wy2, wz1]])  # Right
+        edges.append([[wx2, wy2, wz1], [wx1, wy2, wz1]])  # Back
+        edges.append([[wx1, wy2, wz1], [wx1, wy1, wz1]])  # Left
+        
+        # Top face (4 edges)
+        edges.append([[wx1, wy1, wz2], [wx2, wy1, wz2]])  # Front
+        edges.append([[wx2, wy1, wz2], [wx2, wy2, wz2]])  # Right
+        edges.append([[wx2, wy2, wz2], [wx1, wy2, wz2]])  # Back
+        edges.append([[wx1, wy2, wz2], [wx1, wy1, wz2]])  # Left
+        
+        # Vertical edges (4 edges)
+        edges.append([[wx1, wy1, wz1], [wx1, wy1, wz2]])  # Front-left
+        edges.append([[wx2, wy1, wz1], [wx2, wy1, wz2]])  # Front-right
+        edges.append([[wx2, wy2, wz1], [wx2, wy2, wz2]])  # Back-right
+        edges.append([[wx1, wy2, wz1], [wx1, wy2, wz2]])  # Back-left
+        
+        # Combine all edges into single array
+        all_points = []
+        for edge in edges:
+            all_points.extend(edge)
+        
+        points = np.array(all_points)
+        
+        # Create line plot (yellow, thick)
+        self.selection_box_plot = GLLinePlotItem(
+            pos=points,
+            color=(1.0, 1.0, 0.0, 1.0),  # Yellow
+            width=3,
+            antialias=True,
+            mode='lines'
+        )
+        self.addItem(self.selection_box_plot)
+    
+    def _render_selection_highlight(self, min_x, max_x, min_y, max_y, min_z, max_z):
+        """Render semi-transparent highlighted voxels in selection"""
+        if self.voxels is None:
+            return
+        
+        # Collect all voxel positions in selection
+        positions = []
+        colors = []
+        
+        for x in range(min_x, max_x + 1):
+            for y in range(min_y, max_y + 1):
+                for z in range(min_z, max_z + 1):
+                    # Bounds check
+                    if (0 <= x < self.voxels.shape[0] and
+                        0 <= y < self.voxels.shape[1] and
+                        0 <= z < self.voxels.shape[2]):
+                        
+                        # Convert to world coords
+                        world_x, world_y, world_z = self.voxel_to_world_coords(x, y, z)
+                        positions.append([world_x, world_y, world_z])
+                        
+                        # Yellow highlight with 40% opacity
+                        colors.append([1.0, 1.0, 0.0, 0.4])
+        
+        if not positions:
+            return
+        
+        positions = np.array(positions)
+        colors = np.array(colors)
+        
+        # Create scatter plot for highlighted voxels
+        self.selection_highlight_plot = gl.GLScatterPlotItem(
+            pos=positions,
+            color=colors,
+            size=self.voxel_size * 8,  # Same size as regular voxels
+            pxMode=False,
+            glOptions='translucent'
+        )
+        self.addItem(self.selection_highlight_plot)
+    
+    # ========== SHAPE PREVIEW RENDERING ==========
+    
+    def show_shape_preview(self, positions):
+        """Show preview of line/rectangle being drawn"""
+        self.shape_preview_positions = positions
+        self._render_shape_preview()
+    
+    def clear_shape_preview(self):
+        """Clear shape preview"""
+        self.shape_preview_positions = []
+        self._render_shape_preview()
+        editor = self.window()
+        if hasattr(editor, 'shape_preview_target'):
+            editor.shape_preview_target = None
+    
+    def _render_shape_preview(self):
+        """Render semi-transparent preview of shape"""
+        # Remove old preview
+        if self.shape_preview_plot is not None:
+            self.removeItem(self.shape_preview_plot)
+            self.shape_preview_plot = None
+        
+        if not self.shape_preview_positions:
+            return
+        
+        # Collect preview voxel positions
+        positions = []
+        colors = []
+        
+        for x, y, z in self.shape_preview_positions:
+            # Bounds check
+            if (0 <= x < self.grid_size[0] and
+                0 <= y < self.grid_size[1] and
+                0 <= z < self.grid_size[2]):
+                
+                # Convert to world coords
+                world_x, world_y, world_z = self.voxel_to_world_coords(x, y, z)
+                positions.append([world_x, world_y, world_z])
+                
+                # Cyan preview with 60% opacity
+                colors.append([0.0, 1.0, 1.0, 0.6])
+        
+        if not positions:
+            return
+        
+        positions = np.array(positions)
+        colors = np.array(colors)
+        
+        # Create scatter plot for preview voxels
+        self.shape_preview_plot = gl.GLScatterPlotItem(
+            pos=positions,
+            color=colors,
+            size=self.voxel_size * 8,
+            pxMode=False,
+            glOptions='translucent'
+        )
+        self.addItem(self.shape_preview_plot)

@@ -2,7 +2,7 @@
 # voxel_editor.py - Main application window
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-                             QMenuBar, QStatusBar, QFileDialog, QMessageBox)
+                             QMenuBar, QStatusBar, QFileDialog, QMessageBox, QScrollArea)
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QAction
 import numpy as np
@@ -21,10 +21,16 @@ from stasset_io import load_stasset, save_stasset
 from shape_generator import (generate_cube, generate_sphere, generate_hollow_shell, generate_test_cube,
                              generate_armored_cube, generate_armored_sphere, generate_armored_cylinder,
                              generate_truly_hollow_sphere, generate_truly_hollow_cube,
-                             generate_material_sampler)
+                             generate_material_sampler, generate_simple_humanoid,
+                             generate_simple_humanoid_variant)
 from procedural_buildings import (generate_building_2story, generate_building_lshape,
                                   generate_building_simple_house, generate_ground_plane, create_lod_version)
 from procedural_tilesets import URBAN_RESIDENTIAL_TILESET
+from command_system import (CommandHistory, PaintVoxelCommand, EraseVoxelCommand, 
+                            FillCommand, ReplaceVoxelsCommand)
+from fill_tool import flood_fill_3d
+from selection_system import SelectionBox, Clipboard
+from shape_tools import bresenham_line_3d, draw_rectangle_3d
 
 class VoxelEditor(QMainWindow):
     """Main application window for Voxel Asset Studio"""
@@ -51,6 +57,17 @@ class VoxelEditor(QMainWindow):
             'highlight_hover': True,
             'brush_size': 1
         }
+        
+        # Command history for undo/redo
+        self.command_history = CommandHistory(max_history=50)
+        
+        # Selection and clipboard
+        self.selection_box = SelectionBox()
+        self.clipboard = Clipboard()
+        
+        # Shape drawing state (for line and rectangle tools)
+        self.shape_start_pos = None  # First click position for line/rectangle
+        self.shape_preview_target = None  # Last locked preview coordinate
         
         # Build UI
         self.init_ui()
@@ -90,10 +107,46 @@ class VoxelEditor(QMainWindow):
         self.viewport.voxel_clicked.connect(self.on_voxel_clicked)
         main_layout.addWidget(self.viewport, stretch=1)
         
-        # Right sidebar: Reference models panel
+        # Right sidebar: Reference models panel + Transform panel
+        right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.reference_panel = ReferenceModelPanel(self.viewport.reference_library)
         self.reference_panel.reference_toggled.connect(self.viewport.toggle_reference_model)
-        main_layout.addWidget(self.reference_panel)
+        right_layout.addWidget(self.reference_panel)
+        
+        from transform_panel import TransformPanel
+        self.transform_panel = TransformPanel(self.viewport.reference_library)
+        self.transform_panel.offset_changed.connect(self.viewport.set_model_offset)
+        self.transform_panel.reset_transform.connect(lambda: self.viewport.set_model_offset(0, 0, 0))
+        self.transform_panel.snap_to_reference.connect(self.on_snap_to_reference)
+        right_layout.addWidget(self.transform_panel)
+        
+        from workspace_panel import WorkspacePanel
+        self.workspace_panel = WorkspacePanel()
+        self.workspace_panel.volume_resized.connect(self.on_workspace_resized)
+        right_layout.addWidget(self.workspace_panel)
+        
+        from volume_offset_panel import VolumeOffsetPanel
+        self.volume_offset_panel = VolumeOffsetPanel()
+        self.volume_offset_panel.offset_changed.connect(self.on_volume_offset_changed)
+        self.volume_offset_panel.reset_offset.connect(self.on_volume_offset_reset)
+        right_layout.addWidget(self.volume_offset_panel)
+        
+        right_layout.addStretch()
+        
+        right_content = QWidget()
+        right_content.setLayout(right_layout)
+        
+        # Wrap in scroll area to prevent cutoff in full screen
+        right_scroll = QScrollArea()
+        right_scroll.setWidget(right_content)
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        right_scroll.setMaximumWidth(300)
+        
+        main_layout.addWidget(right_scroll)
         
         central.setLayout(main_layout)
         self.setCentralWidget(central)
@@ -115,6 +168,14 @@ class VoxelEditor(QMainWindow):
         self.regenerate_action.setEnabled(False)  # Disabled until something is generated
         self.regenerate_action.triggered.connect(self.regenerate_current)
         toolbar.addAction(self.regenerate_action)
+        
+        toolbar.addSeparator()
+        
+        # Exit button
+        exit_action = QAction("❌ Exit", self)
+        exit_action.setToolTip("Exit application (Ctrl+Q)")
+        exit_action.triggered.connect(self.close)
+        toolbar.addAction(exit_action)
         
         toolbar.addSeparator()
         
@@ -142,6 +203,47 @@ class VoxelEditor(QMainWindow):
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+        
+        # Edit menu
+        edit_menu = menubar.addMenu("Edit")
+        
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcut("Ctrl+Z")
+        self.undo_action.triggered.connect(self.undo)
+        self.undo_action.setEnabled(False)
+        edit_menu.addAction(self.undo_action)
+        
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcut("Ctrl+Shift+Z")
+        self.redo_action.triggered.connect(self.redo)
+        self.redo_action.setEnabled(False)
+        edit_menu.addAction(self.redo_action)
+        
+        edit_menu.addSeparator()
+        
+        self.copy_action = QAction("Copy", self)
+        self.copy_action.setShortcut("Ctrl+C")
+        self.copy_action.triggered.connect(self.copy_selection)
+        self.copy_action.setEnabled(False)
+        edit_menu.addAction(self.copy_action)
+        
+        self.paste_action = QAction("Paste", self)
+        self.paste_action.setShortcut("Ctrl+V")
+        self.paste_action.triggered.connect(self.paste_clipboard)
+        self.paste_action.setEnabled(False)
+        edit_menu.addAction(self.paste_action)
+        
+        self.delete_action = QAction("Delete Selection", self)
+        self.delete_action.setShortcut("Del")
+        self.delete_action.triggered.connect(self.delete_selection)
+        self.delete_action.setEnabled(False)
+        edit_menu.addAction(self.delete_action)
+        
+        self.fill_selection_action = QAction("Fill Selection", self)
+        self.fill_selection_action.setShortcut("Ctrl+F")
+        self.fill_selection_action.triggered.connect(self.fill_selection_with_material)
+        self.fill_selection_action.setEnabled(False)
+        edit_menu.addAction(self.fill_selection_action)
         
         # View menu
         view_menu = menubar.addMenu("View")
@@ -223,10 +325,14 @@ class VoxelEditor(QMainWindow):
         
         generate_menu.addSeparator()
         
-        # Character proxies (reuse armored cube workflow)
-        character_block_action = QAction("� Character Block (Armored Cube)", self)
+        # Character submenu (matches Tilesets structure)
+        character_menu = generate_menu.addMenu("🧍 Character Blocks")
+        character_block_action = QAction("◇ Default Humanoid", self)
         character_block_action.triggered.connect(self.generate_character_block)
-        generate_menu.addAction(character_block_action)
+        character_menu.addAction(character_block_action)
+        character_variant_action = QAction("◇ Test Humanoid", self)
+        character_variant_action.triggered.connect(self.generate_character_block_variant)
+        character_menu.addAction(character_variant_action)
         
         generate_menu.addSeparator()
         
@@ -259,6 +365,10 @@ class VoxelEditor(QMainWindow):
             self.current_file = filepath
             self.modified = False
             self.update_title()
+            
+            # Auto-populate workspace panel with loaded dimensions
+            self.workspace_panel.set_dimensions(*self.grid_size)
+            
             self.statusBar().showMessage(f"✅ Loaded: {os.path.basename(filepath)}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
@@ -306,7 +416,7 @@ class VoxelEditor(QMainWindow):
             print(f"❌ Error saving {filepath}: {e}")
             
     def on_voxel_clicked(self, x, y, z):
-        """Handle voxel click (paint or erase)"""
+        """Handle voxel click (paint, erase, or fill)"""
         if self.voxels is None:
             return
             
@@ -314,16 +424,135 @@ class VoxelEditor(QMainWindow):
         
         if tool == "paint":
             material = self.tool_panel.get_current_material()
-            self.voxels[x, y, z] = material
-            self.viewport.update_voxel(x, y, z, material)
-            print(f"🖌️ Painted voxel ({x}, {y}, {z}) with material {material}")
+            # Use command pattern for undo/redo
+            positions = [(x, y, z)]  # Single voxel for now (brush size handled later)
+            cmd = PaintVoxelCommand(self.voxels, positions, material)
+            if self.command_history.execute(cmd):
+                self.viewport.update_voxel(x, y, z, material)
+                self.modified = True
+                self.update_title()
+                self.update_undo_redo_state()
+                print(f"🖌️ Painted voxel ({x}, {y}, {z}) with material {material}")
+                
         elif tool == "erase":
-            self.voxels[x, y, z] = 0  # Air
-            self.viewport.update_voxel(x, y, z, 0)
-            print(f"🗑️ Erased voxel ({x}, {y}, {z})")
+            # Use command pattern for undo/redo
+            positions = [(x, y, z)]
+            cmd = EraseVoxelCommand(self.voxels, positions)
+            if self.command_history.execute(cmd):
+                self.viewport.update_voxel(x, y, z, 0)
+                self.modified = True
+                self.update_title()
+                self.update_undo_redo_state()
+                print(f"🗑️ Erased voxel ({x}, {y}, {z})")
+                
+        elif tool == "fill":
+            material = self.tool_panel.get_current_material()
+            # Calculate filled positions using flood fill
+            filled_positions = flood_fill_3d(self.voxels, (x, y, z), material, max_fill=10000)
             
-        self.modified = True
-        self.update_title()
+            if filled_positions:
+                # Create fill command
+                cmd = FillCommand(self.voxels, (x, y, z), material, filled_positions)
+                if self.command_history.execute(cmd):
+                    # Update viewport for all filled voxels
+                    self.viewport.set_voxels(self.voxels)
+                    self.modified = True
+                    self.update_title()
+                    self.update_undo_redo_state()
+                    self.statusBar().showMessage(f"🪣 Filled {len(filled_positions)} voxels", 2000)
+                    print(f"🪣 Filled {len(filled_positions)} voxels from ({x}, {y}, {z})")
+            else:
+                self.statusBar().showMessage("Already filled with target material", 2000)
+                
+        elif tool == "select":
+            # Handle selection
+            if not self.selection_box.dragging:
+                # Start new selection
+                self.selection_box.start_selection(x, y, z)
+                self.viewport.set_selection(self.selection_box)
+                print(f"📦 Started selection at ({x}, {y}, {z})")
+            else:
+                # Finish selection
+                self.selection_box.update_selection(x, y, z)
+                self.selection_box.finish_selection()
+                self.viewport.set_selection(self.selection_box)
+                
+                # Update menu states
+                self.update_selection_state()
+                
+                size = self.selection_box.get_size()
+                voxel_count = len(self.selection_box.get_voxels())
+                self.statusBar().showMessage(
+                    f"📦 Selected {size[0]}×{size[1]}×{size[2]} ({voxel_count} voxels)", 
+                    2000
+                )
+                print(f"📦 Finished selection: {size[0]}×{size[1]}×{size[2]} = {voxel_count} voxels")
+                
+        elif tool == "line":
+            # Handle line drawing
+            if self.shape_start_pos is None:
+                # First click - set start position
+                self.shape_start_pos = (x, y, z)
+                self.statusBar().showMessage(f"📏 Line start: ({x}, {y}, {z}) - Click end point", 2000)
+                print(f"📏 Line started at ({x}, {y}, {z})")
+            else:
+                # Second click - draw line
+                material = self.tool_panel.get_current_material()
+                positions = bresenham_line_3d(self.shape_start_pos, (x, y, z))
+                
+                if positions:
+                    cmd = PaintVoxelCommand(self.voxels, positions, material)
+                    if self.command_history.execute(cmd):
+                        self.viewport.set_voxels(self.voxels)
+                        self.modified = True
+                        self.update_title()
+                        self.update_undo_redo_state()
+                        
+                        from material_library import get_material_name
+                        material_name = get_material_name(material)
+                        self.statusBar().showMessage(
+                            f"📏 Drew line: {len(positions)} voxels with {material_name}", 
+                            2000
+                        )
+                        print(f"📏 Drew line from {self.shape_start_pos} to ({x}, {y}, {z}): {len(positions)} voxels")
+                
+                # Reset for next line
+                self.shape_start_pos = None
+                self.shape_preview_target = None
+                self.viewport.clear_shape_preview()
+                
+        elif tool == "rectangle":
+            # Handle rectangle drawing
+            if self.shape_start_pos is None:
+                # First click - set start corner
+                self.shape_start_pos = (x, y, z)
+                self.statusBar().showMessage(f"▭ Rectangle corner 1: ({x}, {y}, {z}) - Click opposite corner", 2000)
+                print(f"▭ Rectangle started at ({x}, {y}, {z})")
+            else:
+                # Second click - draw rectangle
+                material = self.tool_panel.get_current_material()
+                positions = draw_rectangle_3d(self.shape_start_pos, (x, y, z), mode='filled')
+                
+                if positions:
+                    cmd = PaintVoxelCommand(self.voxels, positions, material)
+                    if self.command_history.execute(cmd):
+                        self.viewport.set_voxels(self.voxels)
+                        self.modified = True
+                        self.update_title()
+                        self.update_undo_redo_state()
+                        
+                        from material_library import get_material_name
+                        material_name = get_material_name(material)
+                        self.statusBar().showMessage(
+                            f"▭ Drew rectangle: {len(positions)} voxels with {material_name}", 
+                            2000
+                        )
+                        print(f"▭ Drew rectangle from {self.shape_start_pos} to ({x}, {y}, {z}): {len(positions)} voxels")
+                
+                # Reset for next rectangle
+                self.shape_start_pos = None
+                self.shape_preview_target = None
+                self.viewport.clear_shape_preview()
         
     def on_material_changed(self, material_id):
         """Material selection changed"""
@@ -331,7 +560,116 @@ class VoxelEditor(QMainWindow):
         
     def on_tool_changed(self, tool_name):
         """Tool selection changed"""
-        pass  # Already handled by tool panel
+        # Clear shape preview when switching tools
+        if tool_name not in ["line", "rectangle"]:
+            self.shape_start_pos = None
+            self.shape_preview_target = None
+            if hasattr(self, 'viewport'):
+                self.viewport.clear_shape_preview()
+    
+    def on_hover_grid_changed(self, grid_pos, modifiers=None):
+        """Called when hover grid position changes (for shape preview)"""
+        if self.shape_start_pos is None:
+            self.viewport.clear_shape_preview()
+            self.shape_preview_target = None
+            return
+        
+        tool = self.tool_panel.get_current_tool()
+        if tool not in ["line", "rectangle"]:
+            self.viewport.clear_shape_preview()
+            self.shape_preview_target = None
+            return
+        
+        # Get modifier keys from Qt
+        from PyQt6.QtCore import Qt
+        if modifiers is None:
+            from PyQt6.QtWidgets import QApplication
+            modifiers = QApplication.keyboardModifiers()
+        
+        # When modifier is pressed, use CONSTRUCTION PLANE instead of grid_pos!
+        # This allows extending into empty space beyond the model surface
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            # Shift = X-axis FREE (move along X, lock Y and Z)
+            # Plane is perpendicular to X, so we can slide along X
+            from PyQt6.QtGui import QCursor
+            mouse_pos = self.viewport.mapFromGlobal(QCursor.pos())
+            plane_pos = self.viewport.get_grid_pos_on_axis_plane(
+                mouse_pos.x(), mouse_pos.y(), 
+                self.shape_start_pos, 
+                'x'
+            )
+            if plane_pos is None:
+                self.viewport.clear_shape_preview()
+                return
+            
+            # Use X from plane, lock Y and Z to start
+            locked_pos = (plane_pos[0], self.shape_start_pos[1], self.shape_start_pos[2])
+            distance = locked_pos[0] - self.shape_start_pos[0]
+            self.statusBar().showMessage(f"X-axis: {distance:+d} voxels", 100)
+        
+        elif modifiers & Qt.KeyboardModifier.ControlModifier:
+            # Ctrl = Y-axis FREE (move along Y, lock X and Z)
+            from PyQt6.QtGui import QCursor
+            mouse_pos = self.viewport.mapFromGlobal(QCursor.pos())
+            plane_pos = self.viewport.get_grid_pos_on_axis_plane(
+                mouse_pos.x(), mouse_pos.y(), 
+                self.shape_start_pos, 
+                'y'
+            )
+            if plane_pos is None:
+                self.viewport.clear_shape_preview()
+                return
+            
+            # Use Y from plane, lock X and Z to start
+            locked_pos = (self.shape_start_pos[0], plane_pos[1], self.shape_start_pos[2])
+            distance = locked_pos[1] - self.shape_start_pos[1]
+            self.statusBar().showMessage(f"Y-axis: {distance:+d} voxels (up/down)", 100)
+        
+        elif modifiers & Qt.KeyboardModifier.AltModifier:
+            # Alt = Z-axis FREE (move along Z, lock X and Y)
+            from PyQt6.QtGui import QCursor
+            mouse_pos = self.viewport.mapFromGlobal(QCursor.pos())
+            plane_pos = self.viewport.get_grid_pos_on_axis_plane(
+                mouse_pos.x(), mouse_pos.y(), 
+                self.shape_start_pos, 
+                'z'
+            )
+            if plane_pos is None:
+                self.viewport.clear_shape_preview()
+                return
+            
+            # Use Z from plane, lock X and Y to start
+            locked_pos = (self.shape_start_pos[0], self.shape_start_pos[1], plane_pos[2])
+            distance = locked_pos[2] - self.shape_start_pos[2]
+            self.statusBar().showMessage(f"Z-axis: {distance:+d} voxels (depth)", 100)
+        
+        else:
+            # No modifier - use grid_pos directly (free movement)
+            if grid_pos is None:
+                self.viewport.clear_shape_preview()
+                self.shape_preview_target = None
+                return
+            locked_pos = grid_pos
+        
+        # Clamp to grid bounds
+        max_x, max_y, max_z = self.grid_size
+        locked_pos = (
+            max(0, min(locked_pos[0], max_x - 1)),
+            max(0, min(locked_pos[1], max_y - 1)),
+            max(0, min(locked_pos[2], max_z - 1))
+        )
+        
+        # Update line preview
+        if tool == "line":
+            preview_positions = bresenham_line_3d(self.shape_start_pos, locked_pos)
+            self.viewport.show_shape_preview(preview_positions)
+            self.shape_preview_target = locked_pos
+        
+        # Update rectangle preview
+        elif tool == "rectangle":
+            preview_positions = draw_rectangle_3d(self.shape_start_pos, locked_pos, mode='filled')
+            self.viewport.show_shape_preview(preview_positions)
+            self.shape_preview_target = locked_pos
         
     def reset_camera(self):
         """Reset camera to default position"""
@@ -363,12 +701,21 @@ class VoxelEditor(QMainWindow):
         self.settings['brush_size'] = size
         self.viewport.set_brush_size(size)
         self.statusBar().showMessage(f"✅ Brush size: {size} voxel{'s' if size > 1 else ''}")
+    
+    def on_snap_to_reference(self, reference_name):
+        """Handle snap to reference model"""
+        result = self.viewport.snap_to_reference(reference_name)
+        if result:
+            x, y, z = result
+            self.transform_panel.set_offset(x, y, z)
+            self.statusBar().showMessage(f"📍 Snapped to {reference_name} at ({x}, {y}, {z})")
         
     def generate_test_cube(self):
         """Generate a simple 8×8×8 test cube"""
         self.voxels = generate_test_cube()
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated 8×8×8 test cube")
@@ -378,6 +725,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_cube((32, 32, 32), material_id=3)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated 32×32×32 cube")
@@ -387,6 +735,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_sphere((32, 32, 32), radius=15, center=(16, 16, 16), material_id=3)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated sphere")
@@ -396,6 +745,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_hollow_shell((32, 32, 32), outer_radius=15, inner_radius=12, center=(16, 16, 16), outer_material=5, inner_material=3)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("⚠️ Generated two-layer shell (NOT hollow - has concrete core)")
@@ -405,6 +755,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_armored_cube(size=(32, 32, 32), shell_thickness=2)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated armored cube (Steel + Concrete)")
@@ -414,6 +765,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_armored_sphere(grid_size=(32, 32, 32), radius=15, center=(16, 16, 16), shell_thickness=2)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated armored sphere (Steel + Concrete)")
@@ -423,6 +775,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_armored_cylinder(grid_size=(32, 32, 32), radius=12, height=28, center=(16, 16, 2), shell_thickness=2)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated armored cylinder (Steel + Concrete)")
@@ -432,6 +785,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_truly_hollow_sphere(grid_size=(32, 32, 32), outer_radius=15, shell_thickness=2, center=(16, 16, 16), material=5)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated truly hollow sphere (empty interior)")
@@ -441,6 +795,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_truly_hollow_cube(size=(32, 32, 32), shell_thickness=2, material=5)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated truly hollow cube (empty interior)")
@@ -450,6 +805,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_material_sampler()
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         self.statusBar().showMessage("✅ Generated material sampler grid (for Unity color mapping)")
@@ -463,6 +819,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_building_2story(width=32, height=64, depth=32, seed=None)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         
@@ -495,6 +852,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_building_lshape(width=48, height=32, depth=48, seed=None)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         
@@ -526,6 +884,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_building_simple_house(width=32, height=24, depth=24, seed=None)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         
@@ -557,6 +916,7 @@ class VoxelEditor(QMainWindow):
         self.voxels = generate_ground_plane(width=128, height=2, depth=128)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         
@@ -576,34 +936,70 @@ class VoxelEditor(QMainWindow):
         print(f"   Perfect for streets and terrain!")
     
     def generate_character_block(self):
-        """Generate a character stand-in using the armored cube workflow"""
+        """Generate a stylized humanoid stand-in that preserves the armored material layout."""
         import time
         start = time.time()
-        block_size = (12, 24, 12)
-        shell = 2
+        block_size = (4, 14, 4)  # Human-scale: matches reference model (0.5m × 1.8m × 0.5m)
         
-        self.voxels = generate_armored_cube(size=block_size, shell_thickness=shell)
+        self.voxels = generate_simple_humanoid(size=block_size)
         self.grid_size = self.voxels.shape
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         self.modified = True
         self.update_title()
         
         elapsed = time.time() - start
         voxel_count = np.count_nonzero(self.voxels)
         
+        # Calculate real-world size
+        real_width = block_size[0] * 0.125  # 1 voxel = 12.5cm
+        real_height = block_size[1] * 0.125
+        real_depth = block_size[2] * 0.125
+        
         self.statusBar().showMessage(
-            f"✅ Generated armored character block | "
+            f"✅ Generated default humanoid | "
             f"Voxels: {voxel_count:,} | "
+            f"Size: {real_width:.2f}m × {real_height:.2f}m × {real_depth:.2f}m | "
             f"Time: {elapsed:.2f}s"
         )
         
-        print(f"🛡️ Character Block Generated:")
+        print(f"🧍 Default Humanoid Generated:")
         print(f"   Grid: {self.grid_size} = {voxel_count:,} voxels")
-        print(f"   Size: {block_size[0]}×{block_size[1]}×{block_size[2]} (armored cube)")
+        print(f"   Size: {block_size[0]}×{block_size[1]}×{block_size[2]} voxels")
+        print(f"   Real-world: {real_width:.2f}m × {real_height:.2f}m × {real_depth:.2f}m")
+        print(f"   (Matches human reference: 0.5m × 1.8m × 0.5m)")
         
         # Store generation state for re-run (size is fixed, seed unused)
-        self.last_generator = lambda seed=None: generate_armored_cube(size=block_size, shell_thickness=shell)
-        self.last_generator_name = "Armored Character Block"
+        self.last_generator = lambda seed=None: generate_simple_humanoid(size=block_size)
+        self.last_generator_name = "Default Humanoid"
+        self.last_seed = None
+        self.regenerate_action.setEnabled(True)
+    
+    def generate_character_block_variant(self):
+        """Generate the secondary humanoid variant (currently same as base for future edits)."""
+        import time
+        start = time.time()
+        block_size = (4, 14, 4)
+        self.voxels = generate_simple_humanoid_variant(size=block_size)
+        self.grid_size = self.voxels.shape
+        self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
+        self.modified = True
+        self.update_title()
+        elapsed = time.time() - start
+        voxel_count = np.count_nonzero(self.voxels)
+        real_width = block_size[0] * 0.125
+        real_height = block_size[1] * 0.125
+        real_depth = block_size[2] * 0.125
+        self.statusBar().showMessage(
+            f"✅ Generated test humanoid | Voxels: {voxel_count:,} | "
+            f"Size: {real_width:.2f}m × {real_height:.2f}m × {real_depth:.2f}m | "
+            f"Time: {elapsed:.2f}s",
+            3000
+        )
+        print("🧍 Test Humanoid Generated")
+        self.last_generator = lambda seed=None: generate_simple_humanoid_variant(size=block_size)
+        self.last_generator_name = "Test Humanoid"
         self.last_seed = None
         self.regenerate_action.setEnabled(True)
     
@@ -629,7 +1025,145 @@ class VoxelEditor(QMainWindow):
         filename = os.path.basename(self.current_file) if self.current_file else "Untitled"
         modified = "*" if self.modified else ""
         self.setWindowTitle(f"Voxel Asset Studio - {filename}{modified}")
+    
+    def undo(self):
+        """Undo last command"""
+        if self.command_history.undo():
+            self.viewport.set_voxels(self.voxels)
+            self.modified = True
+            self.update_title()
+            self.update_undo_redo_state()
+            desc = self.command_history.get_undo_description()
+            if desc:
+                self.statusBar().showMessage(f"↩️ Undone: {desc}", 2000)
+            print(f"↩️ Undo successful")
+    
+    def redo(self):
+        """Redo next command"""
+        if self.command_history.redo():
+            self.viewport.set_voxels(self.voxels)
+            self.modified = True
+            self.update_title()
+            self.update_undo_redo_state()
+            desc = self.command_history.get_redo_description()
+            if desc:
+                self.statusBar().showMessage(f"↪️ Redone: {desc}", 2000)
+            print(f"↪️ Redo successful")
+    
+    def update_undo_redo_state(self):
+        """Update undo/redo menu item enabled state"""
+        self.undo_action.setEnabled(self.command_history.can_undo())
+        self.redo_action.setEnabled(self.command_history.can_redo())
+    
+    def update_selection_state(self):
+        """Update selection-related menu item enabled state"""
+        has_selection = self.selection_box.active
+        has_clipboard = self.clipboard.has_data()
         
+        self.copy_action.setEnabled(has_selection)
+        self.delete_action.setEnabled(has_selection)
+        self.fill_selection_action.setEnabled(has_selection)
+        self.paste_action.setEnabled(has_clipboard)
+    
+    def copy_selection(self):
+        """Copy selected voxels to clipboard"""
+        if not self.selection_box.active:
+            return
+        
+        if self.clipboard.copy(self.voxels, self.selection_box):
+            size = self.selection_box.get_size()
+            voxel_count = len(self.selection_box.get_voxels())
+            self.statusBar().showMessage(f"📋 Copied {size[0]}×{size[1]}×{size[2]} ({voxel_count} voxels)", 2000)
+            self.update_selection_state()
+            print(f"📋 Copied {voxel_count} voxels to clipboard")
+    
+    def paste_clipboard(self):
+        """Paste clipboard contents at selection origin or (0,0,0)"""
+        if not self.clipboard.has_data():
+            return
+        
+        # Paste at selection origin if available, otherwise at (0,0,0)
+        if self.selection_box.active and self.selection_box.start_pos:
+            paste_pos = self.selection_box.start_pos
+        else:
+            paste_pos = (0, 0, 0)
+        
+        modified_positions = self.clipboard.paste(self.voxels, paste_pos)
+        
+        if modified_positions:
+            # Update viewport
+            self.viewport.set_voxels(self.voxels)
+            self.modified = True
+            self.update_title()
+            
+            self.statusBar().showMessage(f"📋 Pasted {len(modified_positions)} voxels at {paste_pos}", 2000)
+            print(f"📋 Pasted {len(modified_positions)} voxels at {paste_pos}")
+    
+    def delete_selection(self):
+        """Delete selected voxels (set to air)"""
+        if not self.selection_box.active:
+            return
+        
+        positions = self.selection_box.get_voxels()
+        if positions:
+            # Use erase command for undo support
+            cmd = EraseVoxelCommand(self.voxels, positions)
+            if self.command_history.execute(cmd):
+                self.viewport.set_voxels(self.voxels)
+                self.modified = True
+                self.update_title()
+                self.update_undo_redo_state()
+                
+                # Clear selection after delete
+                self.selection_box.clear()
+                self.viewport.clear_selection()
+                self.update_selection_state()
+                
+                self.statusBar().showMessage(f"🗑️ Deleted {len(positions)} voxels", 2000)
+                print(f"🗑️ Deleted {len(positions)} voxels")
+    
+    def fill_selection_with_material(self):
+        """Fill all voxels in selection with current material"""
+        if not self.selection_box.active:
+            return
+        
+        material = self.tool_panel.get_current_material()
+        positions = self.selection_box.get_voxels()
+        
+        if positions:
+            # Use paint command for undo support
+            cmd = PaintVoxelCommand(self.voxels, positions, material)
+            if self.command_history.execute(cmd):
+                self.viewport.set_voxels(self.voxels)
+                self.modified = True
+                self.update_title()
+                self.update_undo_redo_state()
+                
+                from material_library import get_material_name
+                material_name = get_material_name(material)
+                self.statusBar().showMessage(
+                    f"🎨 Filled {len(positions)} voxels with {material_name}", 
+                    2000
+                )
+                print(f"🎨 Filled selection with {material_name} ({len(positions)} voxels)")
+        
+    def keyPressEvent(self, event):
+        """Handle key press events"""
+        from PyQt6.QtCore import Qt
+        
+        # Escape key - cancel current shape drawing
+        if event.key() == Qt.Key.Key_Escape:
+            if self.shape_start_pos is not None:
+                self.shape_start_pos = None
+                self.viewport.clear_shape_preview()
+                self.statusBar().showMessage("❌ Shape drawing cancelled", 2000)
+                print("❌ Shape drawing cancelled")
+                event.accept()
+                return
+        
+        # Pass other keys to parent
+        super().keyPressEvent(event)
+    
     def closeEvent(self, event):
         """Handle window close"""
         if self.modified:
@@ -666,6 +1200,7 @@ class VoxelEditor(QMainWindow):
         
         # Update viewport
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         
         # Store generation state for Re-Generate
         self.last_generator = tile_func
@@ -697,6 +1232,7 @@ class VoxelEditor(QMainWindow):
         
         # Update viewport
         self.viewport.set_voxels(self.voxels)
+        self.workspace_panel.set_dimensions(*self.grid_size)
         
         # Update seed
         self.last_seed = new_seed
@@ -707,4 +1243,94 @@ class VoxelEditor(QMainWindow):
         self.update_status()
         
         print(f"✅ Re-generated {self.last_generator_name} with new variation")
+    
+    def on_workspace_resized(self, new_x, new_y, new_z):
+        """Handle workspace volume resize"""
+        old_shape = self.voxels.shape
+        new_shape = (new_x, new_y, new_z)
+        
+        print(f"📦 Resizing workspace: {old_shape} → {new_shape}")
+        
+        # Create new array
+        new_voxels = np.zeros(new_shape, dtype=np.uint8)
+        
+        # Copy existing data (preserve what fits)
+        copy_x = min(old_shape[0], new_x)
+        copy_y = min(old_shape[1], new_y)
+        copy_z = min(old_shape[2], new_z)
+        
+        new_voxels[:copy_x, :copy_y, :copy_z] = self.voxels[:copy_x, :copy_y, :copy_z]
+        
+        # Update voxels
+        self.voxels = new_voxels
+        self.grid_size = new_shape
+        
+        # Update viewport
+        self.viewport.set_voxels(self.voxels)
+        
+        # Update workspace panel
+        self.workspace_panel.set_dimensions(new_x, new_y, new_z)
+        
+        # Mark as modified
+        self.modified = True
+        self.update_title()
+        
+        self.statusBar().showMessage(
+            f"📦 Workspace resized to {new_x}×{new_y}×{new_z} voxels",
+            3000
+        )
+        print(f"✅ Workspace resized successfully")
+    
+    def on_volume_offset_changed(self, shift_x, shift_y, shift_z):
+        """Handle volume offset shift - move asset within the numpy volume"""
+        if self.voxels is None:
+            return
+        
+        if shift_x == 0 and shift_y == 0 and shift_z == 0:
+            return
+        
+        old_shape = self.voxels.shape
+        print(f"📦 Shifting volume by ({shift_x}, {shift_y}, {shift_z})")
+        
+        # Create new array with same shape
+        new_voxels = np.zeros(old_shape, dtype=np.uint8)
+        
+        # Calculate source and destination slices
+        # Positive shift: move data right/up/forward (copy from left/down/back)
+        # Negative shift: move data left/down/back (copy from right/up/forward)
+        
+        src_x_start = max(0, -shift_x)
+        src_x_end = min(old_shape[0], old_shape[0] - shift_x)
+        dst_x_start = max(0, shift_x)
+        dst_x_end = min(old_shape[0], old_shape[0] + shift_x)
+        
+        src_y_start = max(0, -shift_y)
+        src_y_end = min(old_shape[1], old_shape[1] - shift_y)
+        dst_y_start = max(0, shift_y)
+        dst_y_end = min(old_shape[1], old_shape[1] + shift_y)
+        
+        src_z_start = max(0, -shift_z)
+        src_z_end = min(old_shape[2], old_shape[2] - shift_z)
+        dst_z_start = max(0, shift_z)
+        dst_z_end = min(old_shape[2], old_shape[2] + shift_z)
+        
+        # Copy shifted data
+        new_voxels[dst_x_start:dst_x_end, dst_y_start:dst_y_end, dst_z_start:dst_z_end] = \
+            self.voxels[src_x_start:src_x_end, src_y_start:src_y_end, src_z_start:src_z_end]
+        
+        # Update voxels
+        self.voxels = new_voxels
+        
+        # Update viewport
+        self.viewport.set_voxels(self.voxels)
+        
+        # Mark as modified
+        self.modified = True
+        self.update_title()
+        self.statusBar().showMessage(f"📦 Volume shifted by ({shift_x}, {shift_y}, {shift_z})")
+    
+    def on_volume_offset_reset(self):
+        """Reset volume offset to center"""
+        self.volume_offset_panel.set_offset(0, 0, 0)
+        self.statusBar().showMessage("📦 Volume offset reset to center")
     
