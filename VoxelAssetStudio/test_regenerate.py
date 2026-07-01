@@ -28,7 +28,7 @@ save_stasset(filepath, grid)
 
 # Immediately reload and check
 print("\n🔍 After loading back:")
-loaded, dims = load_stasset(filepath)
+loaded, dims, skeleton = load_stasset(filepath)
 print(f"  loaded[0, 15, 0] = {loaded[0, 15, 0]} (expected: {FLESH})")
 
 # Check if they match

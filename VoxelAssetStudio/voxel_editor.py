@@ -13,7 +13,6 @@ from viewport_widget import VoxelViewport
 print("✅ Using pyqtgraph viewport (fast and reliable)")
     
 from tool_panel import ToolPanel
-from brush_panel import BrushPanel
 from reference_panel import ReferenceModelPanel
 from settings_dialog import SettingsDialog
 from mouse_config_dialog import MouseConfigDialog
@@ -98,12 +97,9 @@ class VoxelEditor(QMainWindow):
         self.tool_panel = ToolPanel()
         self.tool_panel.material_changed.connect(self.on_material_changed)
         self.tool_panel.tool_changed.connect(self.on_tool_changed)
+        self.tool_panel.clear_selection.connect(self.clear_selection)
+        self.tool_panel.edit_materials.connect(self.open_material_editor)
         left_layout.addWidget(self.tool_panel)
-        
-        # Brush panel
-        self.brush_panel = BrushPanel()
-        self.brush_panel.brush_size_changed.connect(self.on_brush_size_changed)
-        left_layout.addWidget(self.brush_panel)
         
         left_sidebar.setLayout(left_layout)
         main_layout.addWidget(left_sidebar)
@@ -138,6 +134,15 @@ class VoxelEditor(QMainWindow):
         self.volume_offset_panel.offset_changed.connect(self.on_volume_offset_changed)
         self.volume_offset_panel.reset_offset.connect(self.on_volume_offset_reset)
         right_layout.addWidget(self.volume_offset_panel)
+        
+        from rigging_panel import RiggingPanel
+        self.rigging_panel = RiggingPanel(
+            get_selection=lambda: self.selection_box,
+            get_voxels=lambda: self.voxels,
+            paint_voxels=self._on_rig_paint_voxels,
+        )
+        self.rigging_panel.skeleton_changed.connect(self._on_rig_skeleton_changed)
+        right_layout.addWidget(self.rigging_panel)
         
         right_layout.addStretch()
         
@@ -174,16 +179,6 @@ class VoxelEditor(QMainWindow):
         self.regenerate_action.setEnabled(False)  # Disabled until something is generated
         self.regenerate_action.triggered.connect(self.regenerate_current)
         toolbar.addAction(self.regenerate_action)
-        
-        toolbar.addSeparator()
-        
-        # Exit button
-        exit_action = QAction("❌ Exit", self)
-        exit_action.setToolTip("Exit application (Ctrl+Q)")
-        exit_action.triggered.connect(self.close)
-        toolbar.addAction(exit_action)
-        
-        toolbar.addSeparator()
         
         # File menu
         file_menu = menubar.addMenu("File")
@@ -397,7 +392,7 @@ class VoxelEditor(QMainWindow):
     def load_asset(self, filepath):
         """Load .stasset file"""
         try:
-            self.voxels, self.grid_size = load_stasset(filepath)
+            self.voxels, self.grid_size, self.skeleton_data = load_stasset(filepath)
             self.viewport.set_voxels(self.voxels)
             self.current_file = filepath
             self.modified = False
@@ -405,6 +400,17 @@ class VoxelEditor(QMainWindow):
             
             # Auto-populate workspace panel with loaded dimensions
             self.workspace_panel.set_dimensions(*self.grid_size)
+            
+            # Restore skeleton overlay if the asset carried a rig (v2)
+            if self.skeleton_data is not None:
+                self.skeleton_visible = True
+                self.toggle_skeleton_action.setEnabled(True)
+                self.toggle_skeleton_action.setChecked(True)
+                self.viewport.set_skeleton_overlay(self.skeleton_data)
+            else:
+                self.skeleton_visible = False
+                self.toggle_skeleton_action.setChecked(False)
+                self.viewport.set_skeleton_overlay(None)
             
             self.statusBar().showMessage(f"✅ Loaded: {os.path.basename(filepath)}")
         except Exception as e:
@@ -441,9 +447,9 @@ class VoxelEditor(QMainWindow):
             self.save_to_file(filepath)
             
     def save_to_file(self, filepath):
-        """Save voxels to file"""
+        """Save voxels (and skeleton rig, if any) to file"""
         try:
-            save_stasset(filepath, self.voxels)
+            save_stasset(filepath, self.voxels, self.skeleton_data)
             self.current_file = filepath
             self.modified = False
             self.update_title()
@@ -721,6 +727,13 @@ class VoxelEditor(QMainWindow):
             self.apply_settings()
             self.statusBar().showMessage("✅ Settings updated")
     
+    def open_material_editor(self):
+        """Open the per-material physics property (mass/density) editor."""
+        from material_editor_dialog import MaterialEditorDialog
+        dialog = MaterialEditorDialog(self)
+        if dialog.exec():
+            self.statusBar().showMessage("\u2705 Material properties saved")
+
     def open_mouse_config(self):
         """Open mouse configuration dialog"""
         dialog = MouseConfigDialog(self.viewport.mouse_config, self)
@@ -1136,6 +1149,18 @@ class VoxelEditor(QMainWindow):
             self.statusBar().showMessage(f"📋 Pasted {len(modified_positions)} voxels at {paste_pos}", 2000)
             print(f"📋 Pasted {len(modified_positions)} voxels at {paste_pos}")
     
+    def clear_selection(self):
+        """Clear current selection without deleting voxels"""
+        if not self.selection_box.active:
+            return
+        
+        self.selection_box.clear()
+        self.viewport.clear_selection()
+        self.update_selection_state()
+        
+        self.statusBar().showMessage("📦 Selection cleared", 2000)
+        print("📦 Selection cleared")
+    
     def delete_selection(self):
         """Delete selected voxels (set to air)"""
         if not self.selection_box.active:
@@ -1188,13 +1213,17 @@ class VoxelEditor(QMainWindow):
         """Handle key press events"""
         from PyQt6.QtCore import Qt
         
-        # Escape key - cancel current shape drawing
+        # Escape key - cancel current shape drawing or clear selection
         if event.key() == Qt.Key.Key_Escape:
             if self.shape_start_pos is not None:
                 self.shape_start_pos = None
                 self.viewport.clear_shape_preview()
                 self.statusBar().showMessage("❌ Shape drawing cancelled", 2000)
                 print("❌ Shape drawing cancelled")
+                event.accept()
+                return
+            elif self.selection_box.active:
+                self.clear_selection()
                 event.accept()
                 return
         
@@ -1504,6 +1533,24 @@ class VoxelEditor(QMainWindow):
                 self.viewport.set_skeleton_overlay(None)
                 self.statusBar().showMessage("👁️ Skeleton hidden", 2000)
     
+    def _on_rig_paint_voxels(self, coords, material_id):
+        """RiggingPanel painted voxels with bone/joint material — re-render the viewport."""
+        self.viewport.render_voxels()
+        self.viewport.update()
+        self.modified = True
+
+    def _on_rig_skeleton_changed(self, skeleton):
+        """Live update from the Rigging panel: adopt its skeleton + refresh overlay."""
+        self.skeleton_data = skeleton
+        if skeleton is not None:
+            self.skeleton_visible = True
+            self.toggle_skeleton_action.setEnabled(True)
+            self.toggle_skeleton_action.setChecked(True)
+            self.viewport.set_skeleton_overlay(skeleton)
+        else:
+            self.viewport.set_skeleton_overlay(None)
+        self.modified = True
+
     def clear_skeleton(self):
         """Clear skeleton data"""
         self.skeleton_data = None

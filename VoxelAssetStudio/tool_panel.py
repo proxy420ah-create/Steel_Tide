@@ -11,6 +11,8 @@ class ToolPanel(QWidget):
     
     material_changed = pyqtSignal(int)  # Material ID
     tool_changed = pyqtSignal(str)      # Tool name
+    clear_selection = pyqtSignal()     # Clear selection
+    edit_materials = pyqtSignal()      # Open the material properties editor
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -57,6 +59,12 @@ class ToolPanel(QWidget):
         self.tool_buttons.addButton(select_btn)
         tool_layout.addWidget(select_btn)
         
+        # Clear Selection button (next to Select tool)
+        clear_sel_btn = QPushButton("❌ Clear")
+        clear_sel_btn.setToolTip("Clear current selection (Esc)")
+        clear_sel_btn.clicked.connect(self.clear_selection.emit)
+        tool_layout.addWidget(clear_sel_btn)
+        
         line_btn = QRadioButton("📏 Line")
         line_btn.toggled.connect(lambda: self.set_tool("line"))
         self.tool_buttons.addButton(line_btn)
@@ -85,7 +93,13 @@ class ToolPanel(QWidget):
         
         material_layout.addWidget(QLabel("Select:"))
         material_layout.addWidget(self.material_combo)
-        
+
+        # Open the per-material physics property editor (mass/density).
+        edit_mat_btn = QPushButton("\u2699 Edit Materials\u2026")
+        edit_mat_btn.setToolTip("Edit per-material mass/density used by the physics pipeline")
+        edit_mat_btn.clicked.connect(self.edit_materials.emit)
+        material_layout.addWidget(edit_mat_btn)
+
         material_group.setLayout(material_layout)
         layout.addWidget(material_group)
         

@@ -189,12 +189,6 @@ public class VoxelPhysics : MonoBehaviour
         {
             Color rayColor = isGrounded ? Color.green : Color.red;
             Debug.DrawRay(rayOrigin, rayDirection * groundCheckDistance, rayColor);
-            
-            // Debug log every 60 frames (~1 second)
-            if (Time.frameCount % 60 == 0)
-            {
-                Debug.Log($"Ground Check: Origin={rayOrigin}, Grounded={isGrounded}, Hit={hit.hit}, Distance={hit.distance}");
-            }
         }
         
         // Reset vertical velocity if grounded

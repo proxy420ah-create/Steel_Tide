@@ -101,7 +101,7 @@ namespace SteelTide.Voxels
 
             // Utility / Clothing (11-12)
             new Color(0.2f, 0.3f, 0.2f, 1f),        // 11: Uniform
-            new Color(0.0f, 0.0f, 0.0f, 0f),        // 12: Reserved
+            new Color(0.9f, 0.86f, 0.78f, 1f),      // 12: Bone (rig) — beige, must be opaque/visible (matches material_library.py)
 
             // Damage States (13-15)
             new Color(0.85f, 0.15f, 0.15f, 1f),     // 13: Damaged Concrete
@@ -114,6 +114,9 @@ namespace SteelTide.Voxels
             new Color(0.75f, 0.75f, 0.78f, 1f),     // 18: Foam-Crete
             new Color(0.2f, 0.25f, 0.3f, 1f),       // 19: Nanomesh Fabric
             new Color(0.45f, 0.48f, 0.5f, 1f),      // 20: Plasteel Panels
+
+            // Rig (21)
+            new Color(1.0f, 0.25f, 0.25f, 1f),      // 21: Joint (rig) — red joint marker (matches material_library.py)
         };
 
         private static readonly Color DepthClearColor = new Color(float.MaxValue, 0f, 0f, 0f);

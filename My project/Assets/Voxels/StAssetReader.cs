@@ -28,11 +28,12 @@ using Unity.Mathematics;
 
 namespace SteelTide.Voxels
 {
-    /// <summary>A loaded voxel asset: dimensions + the packed 16-bit volume.</summary>
+    /// <summary>A loaded voxel asset: dimensions + the packed 16-bit volume (+ optional rig).</summary>
     public struct StAsset : IDisposable
     {
         public int3 dims;                  // (x, y, z) voxel counts
         public NativeArray<ushort> volume;  // packed voxels, x + y*dimX + z*dimX*dimY
+        public VoxelSkeleton skeleton;      // v2 rig metadata, or null for v1 / no rig
 
         public int VoxelCount => dims.x * dims.y * dims.z;
 
@@ -50,9 +51,11 @@ namespace SteelTide.Voxels
     public static class StAssetReader
     {
         public const int HeaderSize = 16;
-        public const byte ExpectedVersion = 1;
+        public const byte MaxSupportedVersion = 2;  // v1 = voxels only, v2 = + appended skeleton block
         // "STAS" as little-endian bytes: 'S','T','A','S'.
         private static readonly byte[] Magic = { 0x53, 0x54, 0x41, 0x53 };
+        // "SKEL" skeleton-block magic.
+        private static readonly byte[] SkeletonMagic = { 0x53, 0x4B, 0x45, 0x4C };
 
         /// <summary>Load a .stasset file from disk into a NativeArray-backed StAsset.</summary>
         public static StAsset Load(string path, Allocator allocator = Allocator.Persistent)
@@ -75,7 +78,7 @@ namespace SteelTide.Voxels
             }
 
             byte version = bytes[4];
-            if (version != ExpectedVersion)
+            if (version < 1 || version > MaxSupportedVersion)
                 throw new InvalidDataException($"stasset: unsupported version {version}");
             // bytes[5] = flags (reserved), bytes[12..15] = reserved.
 
@@ -98,11 +101,41 @@ namespace SteelTide.Voxels
                 offset += 2;
             }
 
+            VoxelSkeleton skeleton = null;
+            if (version >= 2)
+                skeleton = TryParseSkeleton(bytes, offset);
+
             return new StAsset
             {
                 dims = new int3(dimX, dimY, dimZ),
                 volume = volume,
+                skeleton = skeleton,
             };
+        }
+
+        /// <summary>Parse the optional "SKEL" block that follows the voxel payload (v2).</summary>
+        private static VoxelSkeleton TryParseSkeleton(byte[] bytes, int offset)
+        {
+            // Need at least the 4-byte magic + 4-byte length.
+            if (offset + 8 > bytes.Length)
+                return null;
+
+            for (int i = 0; i < 4; i++)
+            {
+                if (bytes[offset + i] != SkeletonMagic[i])
+                    return null; // no skeleton block present
+            }
+
+            int jsonLen = bytes[offset + 4]
+                          | (bytes[offset + 5] << 8)
+                          | (bytes[offset + 6] << 16)
+                          | (bytes[offset + 7] << 24);
+            int jsonStart = offset + 8;
+            if (jsonLen <= 0 || jsonStart + jsonLen > bytes.Length)
+                return null;
+
+            string json = System.Text.Encoding.UTF8.GetString(bytes, jsonStart, jsonLen);
+            return VoxelSkeleton.FromJson(json);
         }
 
         private static int ReadU16(byte[] b, int offset) => b[offset] | (b[offset + 1] << 8);

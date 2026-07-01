@@ -21,6 +21,10 @@ namespace SteelTide.Voxels
         [Header("Rendering")]
         public VoxelRenderer voxelRenderer;  // Reference to renderer component
         public bool showGizmo = true;
+
+        [Header("World Registration")]
+        [Tooltip("Register this volume with VoxelWorld for voxel-grid collision. Disable for dynamic render-only surfaces (e.g. the ragdoll re-voxelization volume).")]
+        public bool registerWithVoxelWorld = true;
         
         // Voxel data
         private ushort[] voxelData;
@@ -29,6 +33,10 @@ namespace SteelTide.Voxels
         // World registration context
         private VoxelWorld _voxelWorld;
         private Vector3Int _worldGridOrigin;
+
+        // Optional rig metadata from .stasset v2 (null for v1 / un-rigged assets).
+        public VoxelSkeleton Skeleton { get; private set; }
+        public bool HasSkeleton => Skeleton != null && Skeleton.bones.Count > 0;
         
         void Start()
         {
@@ -40,6 +48,12 @@ namespace SteelTide.Voxels
         
         void RegisterWithVoxelWorld()
         {
+            if (!registerWithVoxelWorld)
+            {
+                Debug.Log($"[VoxelObject] {gameObject.name}: VoxelWorld registration disabled (render-only volume).");
+                return;
+            }
+
             // Register voxel data with VoxelWorld for collision detection
             _voxelWorld = VoxelWorld.Instance;
             
@@ -78,11 +92,17 @@ namespace SteelTide.Voxels
             // Copy NativeArray to managed array
             voxelData = new ushort[asset.VoxelCount];
             asset.volume.CopyTo(voxelData);
+
+            // Capture optional rig metadata (v2). The skeleton is managed memory,
+            // unaffected by the NativeArray Dispose() below.
+            Skeleton = asset.skeleton;
             
             // Dispose the NativeArray
             asset.Dispose();
             
             Debug.Log($"[VoxelObject] Loaded {assetFileName}: {volumeDims.x}×{volumeDims.y}×{volumeDims.z} = {voxelData.Length:N0} voxels");
+            if (HasSkeleton)
+                Debug.Log($"[VoxelObject] Rig: {Skeleton.bones.Count} bones, {Skeleton.joints.Count} joints (root joint {Skeleton.rootJoint})");
             
             // DIAGNOSTIC: Sample some voxels to verify data integrity
             Debug.Log($"[VoxelObject] Sample voxels: [0,0,0]={GetVoxel(0,0,0)}, [0,5,0]={GetVoxel(0,5,0)}, [0,10,0]={GetVoxel(0,10,0)}, [0,15,0]={GetVoxel(0,15,0)}");
@@ -266,6 +286,53 @@ namespace SteelTide.Voxels
             
             voxelBuffer.SetData(gpuData);
         }
+
+        /// <summary>
+        /// Resize the volume to <paramref name="newDims"/>, clearing it to Air and
+        /// recreating the GPU buffer. Used by the ragdoll to allocate an oversized
+        /// render cube that the bind-pose voxels are re-stamped into each frame.
+        /// The VoxelRenderer re-fetches the buffer every frame, so no re-registration
+        /// is needed.
+        /// </summary>
+        public void ReinitializeVolume(int3 newDims)
+        {
+            volumeDims = newDims;
+            int totalVoxels = newDims.x * newDims.y * newDims.z;
+            voxelData = new ushort[totalVoxels];  // zero-initialized (Air)
+
+            if (voxelBuffer != null)
+            {
+                voxelBuffer.Release();
+                voxelBuffer = null;
+            }
+            voxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
+            voxelBuffer.SetData(new uint[totalVoxels]);
+
+            Debug.Log($"[VoxelObject] {gameObject.name}: Volume reinitialized to {newDims.x}×{newDims.y}×{newDims.z}");
+        }
+
+        /// <summary>Zero the CPU voxel array (does not upload). Pair with ApplyVoxelData().</summary>
+        public void ClearVoxelData()
+        {
+            if (voxelData != null)
+                System.Array.Clear(voxelData, 0, voxelData.Length);
+        }
+
+        /// <summary>
+        /// Write a material directly into the CPU array without VoxelWorld sync
+        /// (fast path for per-frame re-voxelization). Call ApplyVoxelData() afterwards.
+        /// </summary>
+        public void StampVoxelDirect(int x, int y, int z, ushort value)
+        {
+            if (x < 0 || y < 0 || z < 0 ||
+                x >= volumeDims.x || y >= volumeDims.y || z >= volumeDims.z)
+                return;
+            int index = x + y * volumeDims.x + z * volumeDims.x * volumeDims.y;
+            voxelData[index] = value;
+        }
+
+        /// <summary>Upload the current CPU voxel array to the GPU buffer.</summary>
+        public void ApplyVoxelData() => UploadToGPU();
         
         void OnDrawGizmos()
         {

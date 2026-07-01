@@ -654,6 +654,7 @@ MonoBehaviour:
   voxelSize: 0.125
   voxelRenderer: {fileID: 0}
   showGizmo: 1
+  registerWithVoxelWorld: 1
 --- !u!4 &1790278694
 Transform:
   m_ObjectHideFlags: 0
@@ -679,7 +680,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1845739897}
   - component: {fileID: 1845739896}
-  - component: {fileID: 1845739895}
+  - component: {fileID: 1845739898}
   m_Layer: 0
   m_Name: Tpose
   m_TagString: Untagged
@@ -687,23 +688,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1845739895
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1845739894}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b97723ce3fc2c5e4b80d5a4ebcfe6265, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::VoxelRigDebug
-  drawBones: 1
-  drawJoints: 1
-  drawParentLinks: 1
-  jointRadiusVoxels: 0.6
-  logHierarchyOnce: 1
 --- !u!114 &1845739896
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -724,6 +708,7 @@ MonoBehaviour:
   voxelSize: 0.125
   voxelRenderer: {fileID: 0}
   showGizmo: 1
+  registerWithVoxelWorld: 1
 --- !u!4 &1845739897
 Transform:
   m_ObjectHideFlags: 0
@@ -733,12 +718,41 @@ Transform:
   m_GameObject: {fileID: 1845739894}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 5.53, y: 3.34, z: 7.57}
+  m_LocalPosition: {x: 6.56, y: 4.8, z: 4.99}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1845739898
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1845739894}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: da3cefa48d1b3ec4d8c0750cc2550503, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VoxelRagdoll
+  simulatePhysics: 0
+  volumePadding: 4
+  maxVolumeSide: 64
+  boneRadiusVoxels: 2
+  massPerLength: 0.5
+  minMass: 0.5
+  massScale: 1
+  selfCollision: 0
+  solverIterations: 16
+  jointLimitSlack: 5
+  useProjection: 1
+  groundMode: 0
+  groundProbeDistance: 0.75
+  groundFriction: 0.4
+  groundStiffness: 100
+  groundMaxPushSpeed: 4
+  drawBoneGizmos: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

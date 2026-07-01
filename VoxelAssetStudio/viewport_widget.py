@@ -68,6 +68,7 @@ class VoxelViewport(GLViewWidget):
         # Rendering
         self.voxel_plot = None  # Scatter plot for all voxels
         self.hover_highlight = None  # Highlight for voxel under cursor
+        self.hover_glow = None  # Glowing point for hovered voxel
         
         # Reference models
         self.reference_library = ReferenceModelLibrary()
@@ -886,10 +887,13 @@ class VoxelViewport(GLViewWidget):
     
     def _render_hover_highlight(self):
         """Render highlight box around hover voxel (snapped to voxel grid)"""
-        # Remove old highlight
+        # Remove old highlight and glow
         if self.hover_highlight is not None:
             self.removeItem(self.hover_highlight)
             self.hover_highlight = None
+        if self.hover_glow is not None:
+            self.removeItem(self.hover_glow)
+            self.hover_glow = None
         
         if self.hover_voxel is None:
             self.material_label.hide()
@@ -908,13 +912,14 @@ class VoxelViewport(GLViewWidget):
         # We must apply the SAME transformation here
         
         # Box bounds in WORLD SPACE (converted from voxel grid coordinates)
-        # Use centralized transform for consistency
-        min_x = (voxel_x - radius) * self.voxel_size
-        max_x = (voxel_x - radius + self.brush_size) * self.voxel_size
-        min_y = (voxel_z - radius) * self.voxel_size  # viewport Y = voxel Z (depth)
-        max_y = (voxel_z - radius + self.brush_size) * self.voxel_size
-        min_z = (voxel_y - radius) * self.voxel_size  # viewport Z = voxel Y (up)
-        max_z = (voxel_y - radius + self.brush_size) * self.voxel_size
+        # Subtract 0.5 to center the wireframe on the voxel cube, matching how
+        # render_voxels places cube meshes centered on the grid point.
+        min_x = (voxel_x - radius - 0.5) * self.voxel_size
+        max_x = (voxel_x - radius + self.brush_size - 0.5) * self.voxel_size
+        min_y = (voxel_z - radius - 0.5) * self.voxel_size  # viewport Y = voxel Z (depth)
+        max_y = (voxel_z - radius + self.brush_size - 0.5) * self.voxel_size
+        min_z = (voxel_y - radius - 0.5) * self.voxel_size  # viewport Z = voxel Y (up)
+        max_z = (voxel_y - radius + self.brush_size - 0.5) * self.voxel_size
         
         # Create wireframe box using line segments (12 edges of a cube)
         edges = np.array([
@@ -944,7 +949,21 @@ class VoxelViewport(GLViewWidget):
             mode='lines'
         )
         
+        # Add glowing point at voxel center
+        from pyqtgraph.opengl import GLScatterPlotItem
+        # Convert voxel coordinates to world position (centered on voxel)
+        world_x, world_y, world_z = self.voxel_to_world_coords(voxel_x, voxel_y, voxel_z)
+        glow_pos = np.array([[world_x, world_y, world_z]])
+        
+        self.hover_glow = GLScatterPlotItem(
+            pos=glow_pos,
+            color=(1.0, 1.0, 0.0, 0.8),  # Yellow with transparency
+            size=self.voxel_size * 1.2,  # Slightly larger than voxel size for glow
+            pxMode=False  # Size in world units, not pixels
+        )
+        
         self.addItem(self.hover_highlight)
+        self.addItem(self.hover_glow)
         self.update()
         
         # Update material label
@@ -969,9 +988,12 @@ class VoxelViewport(GLViewWidget):
         if self.hover_highlight is not None:
             self.removeItem(self.hover_highlight)
             self.hover_highlight = None
-            self.hover_voxel = None
-            self.material_label.hide()
-            self.update()
+        if self.hover_glow is not None:
+            self.removeItem(self.hover_glow)
+            self.hover_glow = None
+        self.hover_voxel = None
+        self.material_label.hide()
+        self.update()
     
     def keyPressEvent(self, ev):
         """Handle WASD camera panning with continuous movement"""
@@ -988,6 +1010,9 @@ class VoxelViewport(GLViewWidget):
             # Toggle camera mode (orbit/free)
             self.camera_mode = 'free' if self.camera_mode == 'orbit' else 'orbit'
             print(f"🎥 Camera mode: {self.camera_mode.upper()}")
+        elif key == Qt.Key.Key_Escape:
+            # Ignore so Qt propagates to parent (main window handles selection clearing)
+            ev.ignore()
         else:
             # Pass other keys to parent
             super().keyPressEvent(ev)

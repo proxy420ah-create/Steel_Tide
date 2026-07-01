@@ -374,8 +374,9 @@ def generate_material_sampler():
     Returns:
         numpy array of voxel data (40x40x40 grid)
     """
-    # Get all material IDs (excluding Air/Reserved)
-    material_ids = [mid for mid in sorted(MATERIALS.keys()) if mid not in [0, 12]]
+    # Get all material IDs (excluding only Air). Includes Bone (12) and Joint (21)
+    # so the grid shows the full 22-material list (21 sampleable blocks).
+    material_ids = [mid for mid in sorted(MATERIALS.keys()) if mid != 0]
     
     # Grid layout: 5x5 blocks (max 25 materials)
     block_size = 8  # Each material block is 8x8x8 voxels
