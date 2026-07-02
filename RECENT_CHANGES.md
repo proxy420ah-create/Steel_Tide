@@ -1,11 +1,125 @@
 # Recent Changes - Steel Tide: First Device
 
-**Last Updated**: June 25, 2026
+**Last Updated**: July 1, 2026
 **Version**: 0.1.0-alpha
 
 ---
 
 ## Current Session Changes
+
+### Session: Modular VoxelActor Refactor
+
+**Goal**: Split the monolithic `VoxelRagdoll.cs` into swappable MonoBehaviour subsystems so each physics feature can be toggled independently for debugging.
+
+**Changes Made**:
+
+1. **New Modular Scripts** (all under `My project/Assets/Scripts/`)
+   - `VoxelActor.cs` — orchestrator that holds shared state and drives the subsystem sequence.
+   - `VoxelBodyManager.cs` — builds synthetic pelvis root, bone bodies, colliders, and joints.
+   - `VoxelGroundResolver.cs` — voxel ground raycast, penetration correction, friction, restitution.
+   - `VoxelBalance.cs` — wraps `BalanceController` and calls `UpdateBalance`.
+   - `VoxelRevoxelizer.cs` — assigns voxels to bones and re-stamps the visual volume each frame.
+   - `VoxelActorGizmos.cs` — debug gizmos for the modular actor.
+   - `VoxelActorDebugController.cs` — runtime debug controls: reset, time scale, subsystem toggles.
+
+2. **RagdollBodyGizmos.cs Updated**
+   - Now supports both `VoxelRagdoll` (legacy) and `VoxelActor` (modular) parents.
+
+3. **Toggles for Bug Isolation**
+   - `enableBodies` — skip body/joint build entirely.
+   - `enableGroundCollision` — test free-fall without ground response.
+   - `enableBalance` — test raw physics without corrective torque.
+   - `enableRevoxelization` — test physics without visual update.
+   - `buildJoints` — make bones independent to isolate joint behavior.
+
+4. **Legacy Preserved**
+   - `VoxelRagdoll.cs` remains unchanged as a working fallback.
+
+---
+
+### Session: Ragdoll Jitter Fix — Physics/Visual Transform Decoupling
+
+**Goal**: Eliminate the strong physical jitter that appeared when re-voxelization and balance were both enabled, and establish a robust architecture for actors that travel long distances.
+
+**Changes Made**:
+
+1. **Root Cause Isolation** (`My project/Assets/Scripts/VoxelRagdoll.cs`)
+   - Added runtime toggles to isolate physics subsystems:
+     - `enableBalance`
+     - `enableGroundCollision`
+     - `enableRevoxelization`
+     - `buildJoints`
+   - Process of elimination showed jitter was caused by `RevoxelizeFrame`, not the balance controller.
+
+2. **Balance Controller Damping & Smoothing** (`My project/Assets/Scripts/BalanceController.cs`)
+   - Added `balanceDamping` to `BalanceSettings` (range 0–10, default 2.0).
+   - `ApplyCorrectiveTorques` now applies a damping torque opposing pelvis angular velocity, scaled by `balanceStrength`.
+   - Added `leanSmoothing` (EMA time constant in seconds) to smooth the lean vector before torque calculation.
+   - Added `airborneBalance` (0–1) to reduce or disable balance correction while feet are not grounded.
+   - `VoxelRagdoll.ResolveVoxelGround` now tracks foot ground contact and feeds `GroundContactScale` to the controller.
+   - EMA alpha is computed from `Time.fixedDeltaTime` so smoothing is consistent at any `Time.timeScale`.
+   - Gizmos now show the raw lean (faint) and the smoothed lean (yellow) used by the controller.
+   - Prevents P-only oscillation and direction-flipping of the corrective torque.
+
+3. **Ground Friction Time-Scale Fix** (`My project/Assets/Scripts/VoxelRagdoll.cs`)
+   - `groundFriction` is now a **per-second rate** (default 20, range 0–50) instead of a per-FixedUpdate factor.
+   - Friction is applied via `Mathf.Exp(-groundFriction * Time.fixedDeltaTime)` so the actor slides the same at normal and slow game speeds.
+
+4. **Ground Penetration Correction Time-Scale Fix + Inelastic Landing** (`My project/Assets/Scripts/VoxelRagdoll.cs`)
+   - `groundStiffness` now divides by `Time.fixedDeltaTime` so the correction speed is `penetration * groundStiffness / Time.fixedDeltaTime`.
+   - This makes the landing response time-step independent: the same fall produces the same bounce at any `Time.timeScale`.
+   - Added `groundRestitution` (0–1). Default 0 = inelastic landing (impact absorbed, no arbitrary bounce). 1 = fully elastic.
+   - Default `groundStiffness` changed from `30` to `0.1` (dimensionless aggressiveness, 0.1 = soft settling over several steps).
+   - Friction is now applied when the body is near or touching the ground, not only when actively penetrating. This fixes sliding on flat ground.
+
+5. **Physics/Visual Transform Decoupling** (`My project/Assets/Scripts/VoxelRagdoll.cs`)
+   - `_boneRoot` is now a **top-level GameObject** instead of a child of the VoxelObject.
+   - Re-enabled the pelvis anchor in `RevoxelizeFrame` so the voxel volume dynamically follows the actor.
+   - `SizeAndAllocateVolume` sizes from the pelvis again.
+   - The VoxelObject transform can move freely for recentering without teleporting the physics bodies.
+
+6. **Debug Gizmo Improvements** (`My project/Assets/Scripts/VoxelRagdoll.cs` + `RagdollBodyGizmos.cs`)
+   - Created `RagdollBodyGizmos.cs` component attached to the generated `_boneRoot`.
+   - Moved bone/joint gizmo drawing from `VoxelRagdoll` to `RagdollBodyGizmos`.
+   - Added `drawGizmosAlways` and `gizmoOffset` controls on the body container for side-by-side comparison with colliders.
+   - Gizmo drawing uses world-space matrix so bone orientations align with physics colliders.
+
+**Architecture Rule Established**:
+
+> **Physics bodies must never be children of the visual voxel volume that recenters.**
+>
+> Visual-only transforms can move freely (recentering, LOD snapping, animation). Physics bodies must stay in world space, or be moved through Rigidbody APIs only.
+
+**Expected Behavior**:
+
+1. Re-voxelization ON, balance ON, gravity ON → actor stands/falls without jitter.
+2. Actor can travel long distances; the voxel volume follows the pelvis while the physics bodies remain stable.
+3. Ground collision works correctly because the bodies are not being teleported by the parent transform.
+4. Selecting the `_boneRoot` GameObject in the hierarchy shows accurate bone/joint gizmos.
+5. `Time.timeScale` changes should not change the direction the actor falls; only the speed.
+6. Higher `balanceStrength` should remain stable with `balanceDamping` in the 2–5 range.
+7. The yellow gizmo line (smoothed lean) should be visible and lag slightly behind the faint raw lean line.
+
+**Critical Test Points**:
+
+- Test at `Time.timeScale = 1.0` and `Time.timeScale = 0.1` — the fall trajectory should match, just slower/faster.
+- Try `balanceStrength = 10` with `balanceDamping = 2.0` and `leanSmoothing = 0.15`.
+- Verify ground friction feels the same at both time scales.
+- Verify landing feels solid at both time scales. With `groundRestitution = 0`, the body should absorb impact and not bounce.
+- Test `groundRestitution = 1.0` for a fully bouncy surface if needed later.
+- Check that `groundMaxPushSpeed = 4` still prevents rocket bounces from deep penetration.
+
+**Documentation**:
+
+- `docs/RAGDOLL_PHYSICS_ITERATION_GUIDE.md` updated with new sections 11 and 12 (jitter root cause + robust fix).
+- `VOXEL_ACTOR_SYSTEM_DESIGN.md` updated:
+  - Re-voxelization section now explicitly describes the visual/physics decoupling.
+  - Design Decisions Log adds the new architecture rule.
+  - Balance controller section now includes `balanceDamping` and `leanSmoothing`.
+- `docs/BALANCE_CONTROLLER_IMPLEMENTATION_PLAN.md` updated to include the new parameters, EMA smoothing, and ground contact scaling.
+- `docs/RAGDOLL_PHYSICS_ITERATION_GUIDE.md` updated to include ground penetration correction fix and airborne balance.
+
+---
 
 ### Session: GPU Rendering Pipeline (test cube → visible on screen)
 

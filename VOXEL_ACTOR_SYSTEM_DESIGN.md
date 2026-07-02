@@ -1,8 +1,8 @@
 # Voxel Actor System Design
 
-**Version**: 1.0.0  
-**Date**: June 30, 2026  
-**Status**: Design Phase — Pending Final Review  
+**Version**: 1.1.0  
+**Date**: July 1, 2026  
+**Status**: Design Phase — Physics/Visual Decoupling Rule Added  
 **Project**: SteelTide
 
 ---
@@ -273,11 +273,18 @@ The **Center of Mass** is the average position of all body mass, weighted by eac
 2. Project CoM onto ground plane (Y = 0 at foot level)
 3. Compute support center: midpoint between left and right foot positions
 4. Lean vector = CoM_horizontal - support_center_horizontal
-5. If |lean| > balanceDeadzone:
-   a. Apply corrective torque to pelvis root: -lean × balanceStrength
-   b. Apply ankle target rotations: push feet opposite to lean
-   c. Scale by balanceStrength (tunable per actor state)
-6. If |lean| > fallThreshold:
+5. Smooth lean with EMA (time constant = `leanSmoothing`) so torque doesn't flip
+   direction every frame. The EMA alpha is derived from `Time.fixedDeltaTime` so
+   the smoothing is consistent at any `Time.timeScale`.
+6. Determine ground contact scale from feet: 1.0 = feet on ground, 0.0 = airborne
+7. If |lean_smoothed| > balanceDeadzone:
+   a. Apply corrective torque to pelvis root: -lean_smoothed × balanceStrength
+   b. Apply damping torque opposing pelvis angular velocity
+   c. Apply ankle target rotations: push feet opposite to lean
+   d. Scale by balanceStrength AND ground contact scale:
+      - On ground: full correction
+      - Airborne: correction × `airborneBalance` (default 10%)
+8. If |lean_smoothed| > fallThreshold:
    → mode = Ragdoll (lost balance, character falls)
 ```
 
@@ -289,6 +296,9 @@ The **Center of Mass** is the average position of all body mass, weighted by eac
 | `balanceDeadzone` | 0.1 | Ignore leans smaller than this (prevents jitter) |
 | `fallThreshold` | 2.0 | Lean distance at which actor falls to ragdoll mode |
 | `ankleAssist` | 0.3 | How much ankle torque contributes vs. pelvis torque |
+| `balanceDamping` | 2.0 | Opposes pelvis angular velocity. Higher = less overshoot and oscillation |
+| `leanSmoothing` | 0.15s | EMA time constant on the lean vector. Higher = smoother, less direction-flipping |
+| `airborneBalance` | 0.1 | Fraction of balance correction applied while airborne. 0 = only on ground |
 
 #### Dynamic Balance States
 
@@ -417,13 +427,17 @@ Layer "VoxelGround"  → collides with both (voxel world ground, handled by Voxe
 
 Each actor puts all its bone colliders on "ActorSelf" for internal ignoring, but sets them to collide with "ActorOther" for cross-actor interaction. This is configured via `Physics.IgnoreLayerCollision()`.
 
-### 7. Re-Voxelization (Existing, Unchanged)
+### 7. Re-Voxelization (Visual Only)
 
-The existing re-voxelization pipeline in `VoxelRagdoll` remains as-is:
-1. Recenter render cube on pelvis root
-2. Clear voxel data
-3. Stamp each voxel from its bone's current world transform
-4. Single GPU upload via `ComputeBuffer.SetData`
+The re-voxelization pipeline follows the visual/physics transform decoupling rule:
+
+1. **Recenter visual volume on pelvis root** — moves ONLY the VoxelObject transform.
+2. **Bone bodies stay top-level** — they are not children of the VoxelObject, so recentering does not teleport the physics bodies.
+3. **Clear voxel data**.
+4. **Stamp each voxel from its bone's current world transform**.
+5. **Single GPU upload via `ComputeBuffer.SetData`**.
+
+This decoupling is critical: the visual volume can follow the actor anywhere, while the physics bodies remain stable. If the bone bodies were children of the VoxelObject, recentering the volume would yank the Rigidbodies every frame, causing the physical jitter observed during iteration.
 
 **Performance per actor**:
 - CPU stamp: ~66-200 voxels (trivial)
@@ -478,24 +492,31 @@ The per-material mass system computes bone mass from voxel count × material den
 ## Implementation Phases
 
 ### Phase 0: Studio — Voxel Bounds + Magic Wand Selector
-**Goal**: Rig data includes voxel cluster bounds; magic wand speeds up rigging.
+**Status**: OBSOLETE ✅
+**Reason**: Voxel bounds already implemented via existing Studio pipeline; magic wand unnecessary with current symmetrical actor.
 
-1. Update `skeleton_generator_actor.py` to compute and store `voxel_bounds_min` / `voxel_bounds_max` per bone and joint
-2. Update `rigging_panel.py` to record voxel bounds from selection box when adding bones/joints
-3. Implement magic wand selector in `viewport_widget.py` — flood-fill connected voxels of same material
-4. Wire magic wand as alternative to drag-box selection in the rigging panel
-5. Regenerate `Actor.stasset` with voxel bounds data
-6. Test: load Actor.stasset in Studio, verify bounds in rig data
+*Original goal was to add voxel bounds computation and magic wand selection to rigging tools. Current implementation already provides proper voxel bounds in `.stasset` files, and we have a complete symmetrical actor with full skeleton. No Studio tooling changes required.*
 
 ### Phase 1: Voxel-Bounds-Derived Colliders + Balance Controller
-**Goal**: Make existing actor stand stably and recover from pushes.
+**Status**: Collider System COMPLETE ✅ | Balance Controller PENDING 🔄
 
-1. Update `StAssetSkeleton.cs` — add `voxelBoundsMin` / `voxelBoundsMax` to `SkeletonBone` and `SkeletonJoint`
-2. Update `VoxelRagdoll.cs` — replace hardcoded collider sizing with bounds-derived sizing
-3. Add role-based compound colliders (sphere+box for feet/hands, box for pelvis, sphere for head)
-4. Implement `BalanceController` — CoM projection, lean detection, corrective torques
-5. Add `balanceStrength`, `fallThreshold`, `balanceDeadzone` tunables
-6. Test: spawn actor, push it, verify wobble recovery
+**Completed (Steps 1-3)**:
+- ✅ `StAssetSkeleton.cs` already supports `voxelBoundsMin` / `voxelBoundsMax`
+- ✅ `VoxelRagdoll.cs` implements `AddVoxelBoundsCollider()` with role-based shapes:
+  - Box collider for pelvis/feet/hands
+  - Sphere collider for head/neck
+  - Capsule collider for limbs
+- ✅ Compound colliders working (e.g., feet get box+box)
+- ✅ Rigid baseline testing with `ActorBone_Rigid.stasset`
+- ✅ Iterative joint unlocking (e.g., `ActorBone_Rigid_Neck.stasset`)
+- ✅ Reset functionality with `ResetRagdoll()` and F5 key binding
+
+**Remaining (Steps 4-6)**:
+- 🔄 Implement `BalanceController` — CoM projection, lean detection, corrective torques
+- 🔄 Add `balanceStrength`, `fallThreshold`, `balanceDeadzone` tunables
+- 🔄 Test: spawn actor, push it, verify wobble recovery
+
+**Next Phase**: We'll implement Balance Controller while gradually unlocking joints to test stability at each step.
 
 ### Phase 2: Input + Movement Layer
 **Goal**: Player can control a ragdoll actor with WASD + mouse.
@@ -583,7 +604,7 @@ The per-material mass system computes bone mass from voxel count × material den
 | File | Purpose |
 |---|---|
 | `VoxelActor.cs` | Main orchestrator (renamed/extended from `VoxelRagdoll.cs`) |
-| `BalanceController.cs` | CoM-based active balance system |
+| `BalanceController.cs` | CoM-based active balance system with damping and lean EMA smoothing |
 | `PoseLibrary.cs` | Pose definitions + blending logic |
 | `IInputSource.cs` | Input abstraction interface |
 | `PlayerInput.cs` | Keyboard/mouse input implementation |
@@ -593,6 +614,18 @@ The per-material mass system computes bone mass from voxel count × material den
 | File | Changes |
 |---|---|
 | `VoxelRagdoll.cs` → `VoxelActor.cs` | Rename, add mode/input/balance, voxel-bounds-derived colliders |
+| `VoxelRagdoll.cs` | Physics/visual transform decoupling: `_boneRoot` top-level, pelvis-anchor re-voxelization |
+| `VoxelRagdoll.cs` | Ground friction fix: per-second exponential decay, time-scale independent |
+| `VoxelRagdoll.cs` | Ground penetration correction fix: divide by Time.fixedDeltaTime, time-scale independent, add `groundRestitution` |
+| `VoxelActor.cs` | New modular orchestrator: holds shared state, drives subsystem sequence |
+| `VoxelBodyManager.cs` | Body/joint build subsystem extracted from `VoxelRagdoll` |
+| `VoxelGroundResolver.cs` | Ground collision/friction/restitution subsystem |
+| `VoxelBalance.cs` | Balance controller wrapper subsystem |
+| `VoxelRevoxelizer.cs` | Re-voxelization/visual update subsystem |
+| `VoxelActorGizmos.cs` | Debug gizmos subsystem for modular actor |
+| `VoxelActorDebugController.cs` | Runtime debug controls: time scale, reset, subsystem toggles |
+| `RagdollBodyGizmos.cs` | Updated to support both `VoxelRagdoll` and `VoxelActor` |
+| `BalanceController.cs` | Damping torque + lean EMA smoothing, time-scale independent |
 | `StAssetSkeleton.cs` | Add `voxelBoundsMin`/`voxelBoundsMax` to `SkeletonBone` and `SkeletonJoint` |
 | `skeleton_generator_actor.py` | Compute and store voxel bounds per bone/joint |
 | `rigging_panel.py` | Record voxel bounds from selection; support magic wand selection |
@@ -619,6 +652,7 @@ The per-material mass system computes bone mass from voxel count × material den
 | Bounding box over full voxel lists | Sufficient for collider sizing; upgrade to voxel lists for convex mesh colliders later | Jun 30 2026 |
 | Retire VoxelPhysics rather than merge | Mutually exclusive physics paradigms; clean replacement | Jun 30 2026 |
 | ConfigurableJoint.targetRotation for animation | Unity-native, physics-integrated, no external IK solver needed | Jun 30 2026 |
+| Physics bodies decoupled from visual voxel volume | Moving the render volume no longer teleports Rigidbodies; enables long-distance travel with dynamic volume | Jul 1 2026 |
 
 ---
 
@@ -634,4 +668,4 @@ The per-material mass system computes bone mass from voxel count × material den
 
 ---
 
-*This document represents the agreed design between user and AI assistant as of June 30, 2026. Implementation begins upon final review approval.*
+*This document represents the agreed design between user and AI assistant as of July 1, 2026. Implementation begins upon final review approval.*
